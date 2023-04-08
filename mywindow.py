@@ -14,7 +14,7 @@ import threading
 from hook import my_hook
 import csv
 
-version = 1 # 0是6.4，1是6.3mp+ 2是6.3 3是6.2 4是6.1 
+version = 1 # -1是6.4状态修正版 0是6.4，1是6.3mp+ 2是6.3 3是6.2 4是6.1 
 #-1 是圣三
 len_war = 0x24
 addr_war = 0x4B2C50
@@ -26,6 +26,7 @@ addr_tianfu = 0x5089B0
 addr_zhuanshu = 0x50E800
 addr_bisha = 0x511800
 life = b'\xE0\x92\x40\x00'
+condition_change = False  #star在6.4修正版中 修改了状态的内存约定
 
 lock_list = []
 lock_hp = []
@@ -1846,6 +1847,58 @@ class Ui_MainWindow(object):
         self.war_input_47.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.war_input_47.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.war_input_47.setObjectName("war_input_47")
+        self.war_input_51 = QtWidgets.QLineEdit(self.widget_3)
+        self.war_input_51.setGeometry(QtCore.QRect(185, 170, 25, 25))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        font.setPointSize(9)
+        self.war_input_51.setFont(font)
+        self.war_input_51.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        #self.war_input_51.setFrameShape(QtWidgets.QFrame.Panel)
+        #self.war_input_51.setLineWidth(2)
+        #self.war_input_51.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        #self.war_input_51.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.war_input_51.setObjectName("war_input_51")
+        self.war_input_52 = QtWidgets.QLineEdit(self.widget_3)
+        self.war_input_52.setGeometry(QtCore.QRect(255, 170, 25, 25))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        font.setPointSize(9)
+        self.war_input_52.setFont(font)
+        self.war_input_52.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        #self.war_input_52.setFrameShape(QtWidgets.QFrame.Panel)
+        #self.war_input_52.setLineWidth(2)
+        #self.war_input_52.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        #self.war_input_52.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.war_input_52.setObjectName("war_input_52")
+        self.war_input_53 = QtWidgets.QLineEdit(self.widget_3)
+        self.war_input_53.setGeometry(QtCore.QRect(185, 200, 25, 25))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        font.setPointSize(9)
+        self.war_input_53.setFont(font)
+        self.war_input_53.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        #self.war_input_53.setFrameShape(QtWidgets.QFrame.Panel)
+        #self.war_input_53.setLineWidth(2)
+        #self.war_input_53.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        #self.war_input_53.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.war_input_53.setObjectName("war_input_53")
+        self.war_input_54 = QtWidgets.QLineEdit(self.widget_3)
+        self.war_input_54.setGeometry(QtCore.QRect(255, 200, 25, 25))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        font.setPointSize(9)
+        self.war_input_54.setFont(font)
+        self.war_input_54.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        #self.war_input_54.setFrameShape(QtWidgets.QFrame.Panel)
+        #self.war_input_54.setLineWidth(2)
+        #self.war_input_54.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        #self.war_input_54.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.war_input_54.setObjectName("war_input_54")
         self.widget_0 = QtWidgets.QWidget(self.frame)
         self.widget_0.setEnabled(True)
         self.widget_0.setGeometry(QtCore.QRect(0, 0, 681, 391))
@@ -2969,6 +3022,10 @@ class Ui_MainWindow(object):
         self.war_input_48.setText("0")
         self.war_input_49.setText("255")
         self.war_input_50.setText("255")
+        self.war_input_51.setText("0")
+        self.war_input_52.setText("0")
+        self.war_input_53.setText("0")
+        self.war_input_54.setText("0")
 
     #这里记录一些乱七八糟的变量和信号槽链接
     def otherSettings(self, MainWindow):
@@ -3765,11 +3822,20 @@ class Ui_MainWindow(object):
         self.md.ReadProcessMemory(int(self.p), 0x501C00+data_code, ctypes.byref(data), 1, None)
         self.war_input_4.setText(str(data.value))
         #健康
-        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
-        self.war_input_5.setChecked(data.value & (1 << 1))
-        self.war_input_6.setChecked(data.value & (1 << 2))
-        self.war_input_7.setChecked(data.value & (1 << 3))
-        self.war_input_8.setChecked(data.value & (1 << 4))
+        global condition_change
+        data = ctypes.c_int()
+        if condition_change == False:
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
+            self.war_input_5.setChecked(data.value & (1 << 1))
+            self.war_input_6.setChecked(data.value & (1 << 2))
+            self.war_input_7.setChecked(data.value & (1 << 3))
+            self.war_input_8.setChecked(data.value & (1 << 4))
+        else:
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
+            self.war_input_51.setText(str(data.value % 4))
+            self.war_input_52.setText(str(int(data.value / 4) % 4))
+            self.war_input_53.setText(str(int(data.value / 16) % 4))
+            self.war_input_54.setText(str(int(data.value / 64) % 4))
         #X
         self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x6, ctypes.byref(data), 1, None)
         self.war_input_9.setText(str(data.value))
@@ -4039,16 +4105,25 @@ class Ui_MainWindow(object):
         data = ctypes.c_int(int(self.war_input_4.toPlainText()))
         self.md.WriteProcessMemory(int(self.p), 0x501C00+data_code, ctypes.byref(data), 1, None)
         #健康
-        data = ctypes.c_int(0)
-        if self.war_input_5.isChecked() == True:
-            data.value += 2
-        if self.war_input_6.isChecked() == True:
-            data.value += 4
-        if self.war_input_7.isChecked() == True:
-            data.value += 8
-        if self.war_input_8.isChecked() == True:
-            data.value += 16
-        self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
+        global condition_change
+        if condition_change == False:
+            data = ctypes.c_int(0)
+            if self.war_input_5.isChecked() == True:
+                data.value += 2
+            if self.war_input_6.isChecked() == True:
+                data.value += 4
+            if self.war_input_7.isChecked() == True:
+                data.value += 8
+            if self.war_input_8.isChecked() == True:
+                data.value += 16
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
+        else:
+            data = ctypes.c_int(0)
+            data.value += 1 * (int(self.war_input_51.text()) % 4)
+            data.value += 4 * (int(self.war_input_52.text()) % 4)
+            data.value += 16 * (int(self.war_input_53.text()) % 4)
+            data.value += 64 * (int(self.war_input_54.text()) % 4)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x1E, ctypes.byref(data), 1, None)
         #方针
         if self.war_kind_1.isChecked() == False:
             sel = self.war_input_11.currentIndex()
@@ -4741,6 +4816,7 @@ class Ui_MainWindow(object):
         global addr_tianfu
         global addr_zhuanshu
         global addr_bisha
+        global condition_change
         if version >= 1:
             addr_war = 0x4B2C50
             len_war = 0x24
@@ -4769,6 +4845,28 @@ class Ui_MainWindow(object):
             addr_tianfu = 0x508998
         else:
             addr_tianfu = 0x5089B0
+        if version == 0:
+            data = ctypes.c_int()
+            self.md.ReadProcessMemory(int(self.p), 0x4240CA, ctypes.byref(data), 1, None)
+            if data.value == 0xFC:
+                condition_change = True
+                self.war_input_5.setVisible(False)
+                self.war_input_6.setVisible(False)
+                self.war_input_7.setVisible(False)
+                self.war_input_8.setVisible(False)
+                self.war_input_51.setVisible(True)
+                self.war_input_52.setVisible(True)
+                self.war_input_53.setVisible(True)
+                self.war_input_54.setVisible(True)
+            else:
+                self.war_input_5.setVisible(True)
+                self.war_input_6.setVisible(True)
+                self.war_input_7.setVisible(True)
+                self.war_input_8.setVisible(True)
+                self.war_input_51.setVisible(False)
+                self.war_input_52.setVisible(False)
+                self.war_input_53.setVisible(False)
+                self.war_input_54.setVisible(False)
 
         data = ctypes.c_int()
         self.md.ReadProcessMemory(int(self.p), 0x401007, ctypes.byref(data), 2, None)
