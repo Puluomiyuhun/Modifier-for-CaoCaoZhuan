@@ -5796,6 +5796,108 @@ color:rgb(0,0,0);</string>
        <enum>Qt::ScrollBarAlwaysOff</enum>
       </property>
      </widget>
+     <widget class="QLabel" name="power_label_1_2">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>355</x><y>15</y><width>136</width><height>20</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family></font></property>
+      <property name="styleSheet"><string notr="true">color:rgb(0,0,0);</string></property>
+      <property name="text"><string>角色2 / 值</string></property>
+     </widget>
+     <widget class="QLabel" name="power_label_1_3">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>525</x><y>15</y><width>136</width><height>20</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family></font></property>
+      <property name="styleSheet"><string notr="true">color:rgb(0,0,0);</string></property>
+      <property name="text"><string>角色3 / 值</string></property>
+     </widget>
+     <widget class="QLabel" name="power_label_1_4">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>185</x><y>65</y><width>136</width><height>15</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family></font></property>
+      <property name="styleSheet"><string notr="true">color:rgb(0,0,0);</string></property>
+      <property name="text"><string>角色4 / 值</string></property>
+     </widget>
+     <widget class="QLabel" name="power_label_1_5">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>355</x><y>65</y><width>136</width><height>15</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family></font></property>
+      <property name="styleSheet"><string notr="true">color:rgb(0,0,0);</string></property>
+      <property name="text"><string>兵种1 / 值</string></property>
+     </widget>
+     <widget class="QLabel" name="power_label_1_6">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>525</x><y>65</y><width>136</width><height>15</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family></font></property>
+      <property name="styleSheet"><string notr="true">color:rgb(0,0,0);</string></property>
+      <property name="text"><string>兵种2 / 值</string></property>
+     </widget>
+     <widget class="QTextEdit" name="power_input_1_6">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>455</x><y>40</y><width>36</width><height>25</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family><pointsize>9</pointsize></font></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+      <property name="frameShape"><enum>QFrame::Panel</enum></property>
+      <property name="lineWidth"><number>2</number></property>
+      <property name="verticalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+      <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     </widget>
+     <widget class="QTextEdit" name="power_input_1_7">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>625</x><y>40</y><width>36</width><height>25</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family><pointsize>9</pointsize></font></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+      <property name="frameShape"><enum>QFrame::Panel</enum></property>
+      <property name="lineWidth"><number>2</number></property>
+      <property name="verticalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+      <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     </widget>
+     <widget class="QTextEdit" name="power_input_1_8">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>285</x><y>80</y><width>36</width><height>25</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family><pointsize>9</pointsize></font></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+      <property name="frameShape"><enum>QFrame::Panel</enum></property>
+      <property name="lineWidth"><number>2</number></property>
+      <property name="verticalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+      <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     </widget>
+     <widget class="QComboBox" name="power_input_1_9">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>355</x><y>80</y><width>96</width><height>25</height></rect></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+     </widget>
+     <widget class="QTextEdit" name="power_input_1_10">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>455</x><y>80</y><width>36</width><height>25</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family><pointsize>9</pointsize></font></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+      <property name="frameShape"><enum>QFrame::Panel</enum></property>
+      <property name="lineWidth"><number>2</number></property>
+      <property name="verticalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+      <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     </widget>
+     <widget class="QComboBox" name="power_input_1_11">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>525</x><y>80</y><width>96</width><height>25</height></rect></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+     </widget>
+     <widget class="QTextEdit" name="power_input_1_12">
+      <property name="visible"><bool>false</bool></property>
+      <property name="geometry"><rect><x>625</x><y>80</y><width>36</width><height>25</height></rect></property>
+      <property name="font"><font><family>微软雅黑</family><pointsize>9</pointsize></font></property>
+      <property name="styleSheet"><string notr="true">background-color:rgb(255, 255, 255);
+color:rgb(0,0,0);</string></property>
+      <property name="frameShape"><enum>QFrame::Panel</enum></property>
+      <property name="lineWidth"><number>2</number></property>
+      <property name="verticalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+      <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+     </widget>
      <widget class="QComboBox" name="power_input_2_2">
       <property name="geometry">
        <rect>
@@ -7151,7 +7253,46 @@ color:rgb(0,255,0);</string>
    <widget class="QRadioButton" name="version_0">
     <property name="geometry">
      <rect>
+      <x>160</x>
+      <y>475</y>
+      <width>70</width>
+      <height>19</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>微软雅黑</family>
+     </font>
+    </property>
+    <property name="text">
+     <string>6.4/5</string>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="version_1">
+    <property name="geometry">
+     <rect>
       <x>20</x>
+      <y>475</y>
+      <width>60</width>
+      <height>19</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>微软雅黑</family>
+     </font>
+    </property>
+    <property name="text">
+     <string>自动</string>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="version_5">
+    <property name="geometry">
+     <rect>
+      <x>100</x>
       <y>475</y>
       <width>50</width>
       <height>19</height>
@@ -7163,31 +7304,13 @@ color:rgb(0,255,0);</string>
      </font>
     </property>
     <property name="text">
-     <string>6.4</string>
-    </property>
-   </widget>
-   <widget class="QRadioButton" name="version_1">
-    <property name="geometry">
-     <rect>
-      <x>80</x>
-      <y>475</y>
-      <width>91</width>
-      <height>19</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>微软雅黑</family>
-     </font>
-    </property>
-    <property name="text">
-     <string>6.3修正版</string>
+     <string>6.6</string>
     </property>
    </widget>
    <widget class="QRadioButton" name="version_2">
     <property name="geometry">
      <rect>
-      <x>180</x>
+      <x>240</x>
       <y>475</y>
       <width>50</width>
       <height>19</height>
@@ -7205,7 +7328,7 @@ color:rgb(0,255,0);</string>
    <widget class="QRadioButton" name="version_3">
     <property name="geometry">
      <rect>
-      <x>240</x>
+      <x>300</x>
       <y>475</y>
       <width>50</width>
       <height>19</height>
@@ -7223,7 +7346,7 @@ color:rgb(0,255,0);</string>
    <widget class="QRadioButton" name="version_4">
     <property name="geometry">
      <rect>
-      <x>300</x>
+      <x>360</x>
       <y>475</y>
       <width>50</width>
       <height>19</height>

@@ -8,6 +8,15 @@ class MyDesiger(QMainWindow, Ui_MainWindow):
         super(MyDesiger, self).__init__(parent)
         self.setupUi(self)
 
+    def mousePressEvent(self, event):
+        return Ui_MainWindow.mousePressEvent(self, event)
+
+    def mouseMoveEvent(self, event):
+        return Ui_MainWindow.mouseMoveEvent(self, event)
+
+    def mouseReleaseEvent(self, event):
+        return Ui_MainWindow.mouseReleaseEvent(self, event)
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     ui = MyDesiger()
