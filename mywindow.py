@@ -10,11 +10,29 @@ import win32con
 import win32process
 import psutil
 import ctypes
-import threading
-from hook import my_hook
+import os
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from hook import HookError, my_hook
+from engine_profile import (EFFECT_JOB_COUNT_66,
+                            EngineVersion,
+                            EffectAssignmentRow8,
+                            EffectAssignmentRow66, EffectAssignmentSlot66,
+                            PEImage, ProfileError, RuntimeModuleImage,
+                            detect_composite_profile,
+                            encode_effect_assignment_row_8,
+                            encode_effect_assignment_row_66, legacy_profile,
+                            parse_effect_assignment_row_8,
+                            parse_effect_assignment_row_66,
+                            treasure_ids_66, verify_engine_identity)
+from engine_layout import (AddressResolverKind, CompareWriteEntry,
+                           FeatureAccess, RawRecordSnapshot,
+                           ResolvedTableDescriptor, TableLayoutSpec)
+from process_memory import MemoryAccessError, MemorySession, PatchError, get_process_module
 import csv
 
-version = 1 # -1是6.4状态修正版 0是6.4，1是6.3mp+ 2是6.3 3是6.2 4是6.1 
+version = 1 # -1是6.4状态修正版，0..6为稳定引擎版本标识
 #-1 是圣三
 len_war = 0x24
 addr_war = 0x4B2C50
@@ -31,7 +49,21 @@ condition_change = False  #star在6.4修正版中 修改了状态的内存约定
 lock_list = []
 lock_hp = []
 lock_mp = []
+lock_ids = []
 auto_life = False
+
+
+@dataclass(frozen=True)
+class PersonPageSnapshot:
+    person_id: int
+    pointer_reference: int
+    person_base: int
+    record_address: int
+    record: bytes
+    r_image: bytes
+    s_image: bytes
+    face: bytes
+    merit: bytes = b""
 
 class myTextEdit(QtWidgets.QTextEdit):
     def __init__(self,parent):
@@ -2171,6 +2203,96 @@ class Ui_MainWindow(object):
         self.power_input_1_5.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.power_input_1_5.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.power_input_1_5.setObjectName("power_input_1_5")
+        self.power_label_1_2 = QtWidgets.QLabel(self.widget_5)
+        self.power_label_1_2.setGeometry(QtCore.QRect(355, 15, 136, 20))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        self.power_label_1_2.setFont(font)
+        self.power_label_1_2.setStyleSheet("color:rgb(0,0,0);")
+        self.power_label_1_2.setObjectName("power_label_1_2")
+        self.power_label_1_3 = QtWidgets.QLabel(self.widget_5)
+        self.power_label_1_3.setGeometry(QtCore.QRect(525, 15, 136, 20))
+        self.power_label_1_3.setFont(font)
+        self.power_label_1_3.setStyleSheet("color:rgb(0,0,0);")
+        self.power_label_1_3.setObjectName("power_label_1_3")
+        self.power_label_1_4 = QtWidgets.QLabel(self.widget_5)
+        self.power_label_1_4.setGeometry(QtCore.QRect(185, 65, 136, 15))
+        self.power_label_1_4.setFont(font)
+        self.power_label_1_4.setStyleSheet("color:rgb(0,0,0);")
+        self.power_label_1_4.setObjectName("power_label_1_4")
+        self.power_label_1_5 = QtWidgets.QLabel(self.widget_5)
+        self.power_label_1_5.setGeometry(QtCore.QRect(355, 65, 136, 15))
+        self.power_label_1_5.setFont(font)
+        self.power_label_1_5.setStyleSheet("color:rgb(0,0,0);")
+        self.power_label_1_5.setObjectName("power_label_1_5")
+        self.power_label_1_6 = QtWidgets.QLabel(self.widget_5)
+        self.power_label_1_6.setGeometry(QtCore.QRect(525, 65, 136, 15))
+        self.power_label_1_6.setFont(font)
+        self.power_label_1_6.setStyleSheet("color:rgb(0,0,0);")
+        self.power_label_1_6.setObjectName("power_label_1_6")
+        value_font = QtGui.QFont()
+        value_font.setFamily("微软雅黑")
+        value_font.setPointSize(9)
+        self.power_input_1_6 = myTextEdit(self.widget_5)
+        self.power_input_1_6.setGeometry(QtCore.QRect(455, 40, 36, 25))
+        self.power_input_1_6.setFont(value_font)
+        self.power_input_1_6.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_6.setFrameShape(QtWidgets.QFrame.Panel)
+        self.power_input_1_6.setLineWidth(2)
+        self.power_input_1_6.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_6.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_6.setObjectName("power_input_1_6")
+        self.power_input_1_7 = myTextEdit(self.widget_5)
+        self.power_input_1_7.setGeometry(QtCore.QRect(625, 40, 36, 25))
+        self.power_input_1_7.setFont(value_font)
+        self.power_input_1_7.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_7.setFrameShape(QtWidgets.QFrame.Panel)
+        self.power_input_1_7.setLineWidth(2)
+        self.power_input_1_7.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_7.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_7.setObjectName("power_input_1_7")
+        self.power_input_1_8 = myTextEdit(self.widget_5)
+        self.power_input_1_8.setGeometry(QtCore.QRect(285, 80, 36, 25))
+        self.power_input_1_8.setFont(value_font)
+        self.power_input_1_8.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_8.setFrameShape(QtWidgets.QFrame.Panel)
+        self.power_input_1_8.setLineWidth(2)
+        self.power_input_1_8.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_8.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_8.setObjectName("power_input_1_8")
+        self.power_input_1_9 = QtWidgets.QComboBox(self.widget_5)
+        self.power_input_1_9.setGeometry(QtCore.QRect(355, 80, 96, 25))
+        self.power_input_1_9.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_9.setObjectName("power_input_1_9")
+        self.power_input_1_10 = myTextEdit(self.widget_5)
+        self.power_input_1_10.setGeometry(QtCore.QRect(455, 80, 36, 25))
+        self.power_input_1_10.setFont(value_font)
+        self.power_input_1_10.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_10.setFrameShape(QtWidgets.QFrame.Panel)
+        self.power_input_1_10.setLineWidth(2)
+        self.power_input_1_10.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_10.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_10.setObjectName("power_input_1_10")
+        self.power_input_1_11 = QtWidgets.QComboBox(self.widget_5)
+        self.power_input_1_11.setGeometry(QtCore.QRect(525, 80, 96, 25))
+        self.power_input_1_11.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_11.setObjectName("power_input_1_11")
+        self.power_input_1_12 = myTextEdit(self.widget_5)
+        self.power_input_1_12.setGeometry(QtCore.QRect(625, 80, 36, 25))
+        self.power_input_1_12.setFont(value_font)
+        self.power_input_1_12.setStyleSheet("background-color:rgb(255, 255, 255);\n"
+"color:rgb(0,0,0);")
+        self.power_input_1_12.setFrameShape(QtWidgets.QFrame.Panel)
+        self.power_input_1_12.setLineWidth(2)
+        self.power_input_1_12.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_12.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.power_input_1_12.setObjectName("power_input_1_12")
         self.power_input_2_2 = QtWidgets.QComboBox(self.widget_5)
         self.power_input_2_2.setGeometry(QtCore.QRect(355, 140, 136, 25))
         self.power_input_2_2.setStyleSheet("background-color:rgb(255, 255, 255);\n"
@@ -2691,31 +2813,43 @@ class Ui_MainWindow(object):
         self.label_help.setTextFormat(QtCore.Qt.AutoText)
         self.label_help.setObjectName("label_help")
         self.version_0 = QtWidgets.QRadioButton(self.centralwidget)
-        self.version_0.setGeometry(QtCore.QRect(100, 475, 50, 19))
+        self.version_0.setGeometry(QtCore.QRect(210, 475, 50, 19))
         font = QtGui.QFont()
         font.setFamily("微软雅黑")
         self.version_0.setFont(font)
         self.version_0.setObjectName("version_0")
         self.version_1 = QtWidgets.QRadioButton(self.centralwidget)
-        self.version_1.setGeometry(QtCore.QRect(20, 475, 91, 19))
+        self.version_1.setGeometry(QtCore.QRect(20, 475, 60, 19))
         font = QtGui.QFont()
         font.setFamily("微软雅黑")
         self.version_1.setFont(font)
         self.version_1.setObjectName("version_1")
+        self.version_5 = QtWidgets.QRadioButton(self.centralwidget)
+        self.version_5.setGeometry(QtCore.QRect(90, 475, 50, 19))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        self.version_5.setFont(font)
+        self.version_5.setObjectName("version_5")
+        self.version_6 = QtWidgets.QRadioButton(self.centralwidget)
+        self.version_6.setGeometry(QtCore.QRect(150, 475, 50, 19))
+        font = QtGui.QFont()
+        font.setFamily("微软雅黑")
+        self.version_6.setFont(font)
+        self.version_6.setObjectName("version_6")
         self.version_2 = QtWidgets.QRadioButton(self.centralwidget)
-        self.version_2.setGeometry(QtCore.QRect(160, 475, 50, 19))
+        self.version_2.setGeometry(QtCore.QRect(270, 475, 50, 19))
         font = QtGui.QFont()
         font.setFamily("微软雅黑")
         self.version_2.setFont(font)
         self.version_2.setObjectName("version_2")
         self.version_3 = QtWidgets.QRadioButton(self.centralwidget)
-        self.version_3.setGeometry(QtCore.QRect(220, 475, 50, 19))
+        self.version_3.setGeometry(QtCore.QRect(330, 475, 50, 19))
         font = QtGui.QFont()
         font.setFamily("微软雅黑")
         self.version_3.setFont(font)
         self.version_3.setObjectName("version_3")
         self.version_4 = QtWidgets.QRadioButton(self.centralwidget)
-        self.version_4.setGeometry(QtCore.QRect(280, 475, 50, 19))
+        self.version_4.setGeometry(QtCore.QRect(390, 475, 50, 19))
         font = QtGui.QFont()
         font.setFamily("微软雅黑")
         self.version_4.setFont(font)
@@ -2723,6 +2857,8 @@ class Ui_MainWindow(object):
         self.buttonGroup=QtWidgets.QButtonGroup(self.centralwidget)
         self.buttonGroup.addButton(self.version_0)
         self.buttonGroup.addButton(self.version_1)
+        self.buttonGroup.addButton(self.version_5)
+        self.buttonGroup.addButton(self.version_6)
         self.buttonGroup.addButton(self.version_2)
         self.buttonGroup.addButton(self.version_3)
         self.buttonGroup.addButton(self.version_4)
@@ -2950,6 +3086,11 @@ class Ui_MainWindow(object):
         self.item_7.setText(_translate("MainWindow", "<html><head/><body><p align=\"right\">功勋池</p></body></html>"))
         self.item_save_2.setText(_translate("MainWindow", "保存"))
         self.power_1.setText(_translate("MainWindow", "<html><head/><body><p>天赋</p></body></html>"))
+        self.power_label_1_2.setText(_translate("MainWindow", "角色2 / 值"))
+        self.power_label_1_3.setText(_translate("MainWindow", "角色3 / 值"))
+        self.power_label_1_4.setText(_translate("MainWindow", "角色4 / 值"))
+        self.power_label_1_5.setText(_translate("MainWindow", "兵种1 / 值"))
+        self.power_label_1_6.setText(_translate("MainWindow", "兵种2 / 值"))
         self.power_2.setText(_translate("MainWindow", "<html><head/><body><p>专属</p></body></html>"))
         self.power_3.setText(_translate("MainWindow", "<html><head/><body><p>套装</p></body></html>"))
         item = self.listview_var_1.horizontalHeaderItem(0)
@@ -3007,6 +3148,8 @@ class Ui_MainWindow(object):
         self.label_help.setText(_translate("MainWindow", "将左方的\"准心图案\"拖拽至游戏中即可开始调试。"))
         self.version_0.setText(_translate("MainWindow", "6.4"))
         self.version_1.setText(_translate("MainWindow", "自动"))
+        self.version_5.setText(_translate("MainWindow", "6.6"))
+        self.version_6.setText(_translate("MainWindow", "6.5"))
         self.version_2.setText(_translate("MainWindow", "6.3"))
         self.version_3.setText(_translate("MainWindow", "6.2"))
         self.version_4.setText(_translate("MainWindow", "6.1"))
@@ -3035,11 +3178,36 @@ class Ui_MainWindow(object):
         global cnt_you
         global cnt_di
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("myappid")
-        self.setWindowIcon(QIcon('logo.ico'))
+        source_dir = Path(__file__).resolve().parent
+        self.base_dir = (Path(sys.executable).resolve().parent
+                         if getattr(sys, "frozen", False) else source_dir)
+        self.resource_dir = Path(getattr(sys, "_MEIPASS", source_dir))
+        icon_path = self.resource_dir / "logo.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.mouse_capture = False
+        # 防止解绑过程中 Qt 的 selectionChanged 信号重入业务槽函数。
+        self._detaching = False
+        self._attach_in_progress = False
+        self._cursor_handle = 0
         self.process = NULL
         self.p = NULL
         self.md = NULL
+        self.memory_session = None
+        self.engine_profile = None
+        self._warehouse_snapshot = None
+        self._item_global_snapshot = None
+        self._consumable_snapshots = {}
+        self._effect_snapshot = None
+        self._exclusive_snapshot = None
+        self._shown_exclusive_state = None
+        self._fatal_snapshot = None
+        self._variable_byte_snapshots = {}
+        self._person_snapshot = None
+        # (battle slot, Data ID) -> monotonic timestamp.  This is scoped to
+        # one attached process and prevents the 1-second timer from submitting
+        # the same dead unit repeatedly while the game is still rebuilding it.
+        self._auto_revive_attempts = {}
         self.ok = False
         #窗口初始化
         self.widget_0.hide()
@@ -3052,7 +3220,10 @@ class Ui_MainWindow(object):
         self.widget_6.hide()
         self.widget_7.hide()
         self.widget_8.hide()
-        pix = QtGui.QPixmap('准星.png')
+        pivot_path = self.resource_dir / "准星.png"
+        if not pivot_path.exists():
+            pivot_path = self.resource_dir / "准星.cur"
+        pix = QtGui.QPixmap(str(pivot_path))
         self.label_pivot.setPixmap(pix)
         self.setFocusPolicy(QtCore.Qt.ClickFocus)
         self.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
@@ -3065,7 +3236,6 @@ class Ui_MainWindow(object):
         self.checkBox_5.clicked.connect(lambda: self.onButtonClick(5))
         self.checkBox_6.clicked.connect(lambda: self.onButtonClick(6))
         self.checkBox_7.clicked.connect(lambda: self.onButtonClick(7))
-        self.checkBox_8.clicked.connect(lambda: self.onButtonClick(8))
         self.checkBox_8.clicked.connect(lambda: self.onButtonClick(8))
         self.checkBox_9.clicked.connect(lambda: self.onButtonClick(9))
 
@@ -3105,9 +3275,9 @@ class Ui_MainWindow(object):
         self.listview_var_2.setColumnWidth(2,65)
         self.listview_var_3.setColumnWidth(0,45)
         self.listview_var_3.setColumnWidth(1,75)
-        self.var_input_4.clicked.connect(lambda: self.onVar())
-        self.var_input_5.clicked.connect(lambda: self.onVar())
-        self.var_input_6.clicked.connect(lambda: self.onVar())
+        self.var_input_4.clicked.connect(lambda: self.onVar(1))
+        self.var_input_5.clicked.connect(lambda: self.onVar(2))
+        self.var_input_6.clicked.connect(lambda: self.onVar(3))
         self.var_save_1.clicked.connect(lambda: self.saveVar(1))
         self.var_save_2.clicked.connect(lambda: self.saveVar(2))
         self.var_save_3.clicked.connect(lambda: self.saveVar(3))
@@ -3126,9 +3296,575 @@ class Ui_MainWindow(object):
 
         #控件属性设置
         self.my_thread = NULL
+        self.lock_timer = QtCore.QTimer(MainWindow)
+        self.lock_timer.setInterval(1000)
+        self.lock_timer.timeout.connect(self.LockThread)
         self.item_input_1.setMaxVisibleItems(32)
         self.version_1.setChecked(True)
-    
+        self._set_effect_layout(False)
+
+    def _set_status(self, text):
+        visible = self.label_window2.fontMetrics().elidedText(
+            text, QtCore.Qt.ElideRight, self.label_window2.width()-8)
+        self.label_window2.setText(visible)
+        self.label_window2.setToolTip(text)
+
+    @staticmethod
+    def _load_cursor_file(path):
+        """Load a cursor with the Unicode Win32 API (LoadImageW).
+
+        win32gui.LoadImage may route through the ANSI API on some pywin32
+        builds, which cannot resolve a path containing Chinese characters.
+        """
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p,
+                                      ctypes.c_uint, ctypes.c_int,
+                                      ctypes.c_int, ctypes.c_uint]
+        user32.LoadImageW.restype = ctypes.c_void_p
+        handle = user32.LoadImageW(None, str(Path(path)),
+                                   win32con.IMAGE_CURSOR, 0, 0,
+                                   win32con.LR_LOADFROMFILE)
+        if not handle:
+            raise OSError("无法加载准星文件: %s (WinError=%d)" %
+                          (path, ctypes.get_last_error()))
+        return int(handle)
+
+    def _resolve_engine_version(self, version_part):
+        if self.version_5.isChecked():
+            return int(EngineVersion.V66)
+        if self.version_6.isChecked():
+            return int(EngineVersion.V65)
+        if self.version_0.isChecked():
+            return int(EngineVersion.V64)
+        if self.version_2.isChecked():
+            return int(EngineVersion.V63)
+        if self.version_3.isChecked():
+            return int(EngineVersion.V62)
+        if self.version_4.isChecked():
+            return int(EngineVersion.V61)
+        return int({
+            6: EngineVersion.V66,
+            5: EngineVersion.V65,
+            4: EngineVersion.V64,
+            3: EngineVersion.V63,
+            2: EngineVersion.V62,
+        }.get(int(version_part), EngineVersion.V61))
+
+    def _manual_engine_hint(self):
+        if self.version_1.isChecked():
+            return None
+        return self._resolve_engine_version(1)
+
+    def _read_text(self, address, size, encoding="gbk"):
+        try:
+            raw = self.memory_session.read_bytes(address, size).split(b"\0", 1)[0]
+        except MemoryAccessError:
+            return "不可读"
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            return "非法字符"
+
+    def _populate_profile_effect_names(self):
+        if self.engine_profile is None:
+            raise ProfileError("尚未建立引擎画像")
+        names = self.engine_profile.effect_name_catalog()
+        ui_count = self.engine_profile.limits.get("effect_count", len(names))
+        if not 0 <= ui_count <= len(names):
+            raise ProfileError(
+                "特效名称界面范围无效: %d/%d" % (ui_count, len(names)))
+        self.listview_item_3.clear()
+        for effect_id, name in enumerate(names[:ui_count]):
+            self.listview_item_3.addItem("%d:%s" % (effect_id, name))
+
+    def _parse_uint(self, widget, bits, label):
+        text = widget.toPlainText().strip()
+        if text == "":
+            raise ValueError(label + "不能为空")
+        value = int(text, 10)
+        if not 0 <= value < (1 << bits):
+            raise ValueError("%s超出 UInt%d 范围" % (label, bits))
+        return value
+
+    def _profile_address(self, key, fallback):
+        if self.engine_profile is None:
+            return fallback
+        return int(self.engine_profile.addresses.get(key, fallback))
+
+    def _variable_layout(self, capability_key):
+        layouts = (self.engine_profile.metadata.get("variable_layouts", {})
+                   if self.engine_profile is not None else {})
+        layout = layouts.get(capability_key)
+        if isinstance(layout, dict):
+            return layout
+        address_keys = {
+            "variables_bool": "bool_vars",
+            "variables_int": "int_vars",
+            "variables_ptr": "ptr_vars",
+        }
+        return {
+            "addressKey": address_keys[capability_key],
+            "dataOffset": 0, "stride": 4, "width": 4,
+            "signed": capability_key != "variables_ptr",
+            "recordCount": (481 if capability_key == "variables_ptr"
+                            else 4096),
+        }
+
+    def _variable_record_count(self, capability_key):
+        layout = self._variable_layout(capability_key)
+        if "recordCount" in layout:
+            return int(layout["recordCount"])
+        limit_key = {
+            "variables_bool": "variable_bool_count",
+            "variables_int": "variable_int_count",
+            "variables_ptr": "variable_ptr_count",
+        }[capability_key]
+        if self.engine_profile is not None:
+            return int(self.engine_profile.limits.get(
+                limit_key, self.engine_profile.limits.get("variable_count", 4096)))
+        return 481 if capability_key == "variables_ptr" else 4096
+
+    def _variable_address(self, capability_key, index):
+        layout = self._variable_layout(capability_key)
+        base = self._profile_address(
+            layout["addressKey"], {
+                "variables_bool": 0x00492FC8,
+                "variables_int": 0x00502000,
+                "variables_ptr": 0x00506000,
+            }[capability_key])
+        if layout.get("storage") == "bitset":
+            return (base + int(layout.get("dataOffset", 0)) +
+                    int(index) // 8)
+        return (base + int(layout.get("dataOffset", 0)) +
+                int(index) * int(layout["stride"]))
+
+    @staticmethod
+    def _variable_bit_mask(layout, index):
+        bit_index = int(index) % 8
+        if layout.get("bitOrder") == "msb0":
+            return 0x80 >> bit_index
+        return 1 << bit_index
+
+    def _set_effect_layout(self, is_66):
+        labels = (self.power_label_1_2, self.power_label_1_3,
+                  self.power_label_1_4, self.power_label_1_5,
+                  self.power_label_1_6)
+        extended = labels + (
+            self.power_input_1_6, self.power_input_1_7,
+            self.power_input_1_8, self.power_input_1_9,
+            self.power_input_1_10, self.power_input_1_11,
+            self.power_input_1_12)
+        for control in extended:
+            control.setVisible(is_66)
+        if is_66:
+            self.power_1.setGeometry(QtCore.QRect(185, 15, 136, 20))
+            self.power_1.setText("天赋·角色1 / 值")
+            for control, x, y in (
+                    (self.power_input_1_1, 185, 40),
+                    (self.power_input_1_2, 355, 40),
+                    (self.power_input_1_3, 525, 40),
+                    (self.power_input_1_4, 185, 80),
+                    (self.power_input_1_9, 355, 80),
+                    (self.power_input_1_11, 525, 80)):
+                control.setGeometry(QtCore.QRect(x, y, 96, 25))
+            for control, x, y in (
+                    (self.power_input_1_5, 285, 40),
+                    (self.power_input_1_6, 455, 40),
+                    (self.power_input_1_7, 625, 40),
+                    (self.power_input_1_8, 285, 80),
+                    (self.power_input_1_10, 455, 80),
+                    (self.power_input_1_12, 625, 80)):
+                control.setGeometry(QtCore.QRect(x, y, 36, 25))
+            return
+        self.power_1.setGeometry(QtCore.QRect(185, 15, 31, 20))
+        self.power_1.setText("<html><head/><body><p>天赋</p></body></html>")
+        self.power_input_1_1.setGeometry(QtCore.QRect(185, 40, 136, 25))
+        self.power_input_1_2.setGeometry(QtCore.QRect(355, 40, 136, 25))
+        self.power_input_1_3.setGeometry(QtCore.QRect(525, 40, 136, 25))
+        self.power_input_1_4.setGeometry(QtCore.QRect(185, 80, 136, 25))
+        self.power_input_1_5.setGeometry(QtCore.QRect(355, 80, 136, 25))
+
+    def _selected_war_slot(self):
+        item = self.listview_war.currentItem()
+        if item is None:
+            return -1
+        slot = item.data(QtCore.Qt.UserRole)
+        if slot is not None:
+            return int(slot)
+        row = self.listview_war.currentRow()
+        if self.war_kind_2.isChecked():
+            return row + cnt_wo
+        if self.war_kind_3.isChecked():
+            return row + cnt_wo + cnt_you
+        return row
+
+    def _variable_values(self, capability_key, start):
+        if not self._feature_readable(capability_key):
+            return []
+        record_count = self._variable_record_count(capability_key)
+        if not 0 <= int(start) < record_count:
+            raise MemoryAccessError(
+                "变量起始编号必须在 0..%d" % (record_count - 1))
+        count = min(int(start) + 100, record_count) - int(start)
+        layout = self._variable_layout(capability_key)
+        self._variable_byte_snapshots = {
+            key: value for key, value in self._variable_byte_snapshots.items()
+            if key[0] != capability_key
+        }
+        if layout.get("storage") == "bitset":
+            if count <= 0:
+                return []
+            first_byte = start // 8
+            last_byte = (start + count - 1) // 8
+            base = self._profile_address(layout["addressKey"], 0x00492FC8)
+            raw = self.memory_session.read_bytes(
+                base + int(layout.get("dataOffset", 0)) + first_byte,
+                last_byte - first_byte + 1)
+            snapshots = getattr(self, "_variable_byte_snapshots", {})
+            for offset, value in enumerate(raw):
+                snapshots[(capability_key,
+                           base + int(layout.get("dataOffset", 0)) +
+                           first_byte + offset)] = bytes((value,))
+            self._variable_byte_snapshots = snapshots
+            return [1 if raw[(start + offset) // 8 - first_byte] &
+                    self._variable_bit_mask(layout, start + offset) else 0
+                    for offset in range(count)]
+        width = int(layout["width"])
+        stride = int(layout["stride"])
+        address = self._variable_address(capability_key, start)
+        raw_size = 0 if count == 0 else (count - 1) * stride + width
+        raw = self.memory_session.read_bytes(address, raw_size)
+        snapshots = getattr(self, "_variable_byte_snapshots", {})
+        for index in range(count):
+            item_address = address + index * stride
+            snapshots[(capability_key, item_address)] = bytes(
+                raw[index*stride:index*stride+width])
+        self._variable_byte_snapshots = snapshots
+        return [int.from_bytes(raw[index*stride:index*stride+width], "little",
+                               signed=bool(layout.get("signed", False)))
+                for index in range(count)]
+
+    @staticmethod
+    def _readonly_table_item(text):
+        item = QtWidgets.QTableWidgetItem(str(text))
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
+        return item
+
+    def _feature_enabled(self, key):
+        return self._feature_writable(key)
+
+    def _feature_readable(self, key):
+        return (not self._detaching and self.memory_session is not None and
+                self.engine_profile is not None and
+                self.engine_profile.can_read(key))
+
+    def _feature_writable(self, key):
+        return (not self._detaching and self.memory_session is not None and
+                self.engine_profile is not None and
+                self.engine_profile.can_write(key))
+
+    def _feature_tooltip(self, key):
+        """Return a risk warning without turning direct compatibility into a gate."""
+        if self.engine_profile is None:
+            return ""
+        warning = getattr(self.engine_profile, "compatibility_warning", None)
+        if callable(warning):
+            return warning(key)
+        return ""
+
+    def _consumable_mapping(self):
+        if not self._feature_readable("item_consumables"):
+            return None
+        mapping = self.engine_profile.metadata.get("consumable_mapping")
+        if not isinstance(mapping, dict):
+            return None
+        return mapping
+
+    def _item_ids(self, domain="record"):
+        """Return the profile's validated metadata/equipment/item domain."""
+        if self.engine_profile is None:
+            return []
+        try:
+            return list(self.engine_profile.item_ids(domain))
+        except (AttributeError, ValueError):
+            count = int(self.engine_profile.limits.get("item_count", 0))
+            if domain in ("equipment", "equip"):
+                count = int(self.engine_profile.limits.get(
+                    "equipment_count", count))
+                return list(range(max(0, min(0xFF, count))))
+            return list(range(max(0, min(0xFF, count))))
+
+    def _is_equipment_item(self, item_id):
+        return int(item_id) in set(self._item_ids("equipment"))
+
+    def _is_item_record(self, item_id):
+        return int(item_id) in set(self._item_ids("record"))
+
+    def _validate_equipment_selection(self, control, start, end, label):
+        """Validate an equipment-slot combo before writing its byte token."""
+        selected = int(control.currentIndex())
+        if selected == cnt_item:
+            return True
+        if not self._is_item_record(selected) or not self._is_equipment_item(selected):
+            self._set_status("%s cannot use an item/consumable ID" % label)
+            return False
+        if not start <= selected <= end:
+            self._set_status("%s item ID is outside its equipment category" % label)
+            return False
+        return True
+
+    def _consumable_ids(self):
+        mapping = self._consumable_mapping()
+        if mapping is None:
+            values = self.engine_profile.metadata.get("consumable_item_ids", [])
+            return [int(item) for item in values]
+        explicit = [int(item) for item in mapping.get("itemIds", [])]
+        if explicit:
+            return explicit
+        start = int(mapping["idMin"])
+        end = int(mapping["idMax"])
+        pairs = {tuple(int(value) for value in item)
+                 for item in mapping.get("categoryPairs", [])}
+        if not pairs:
+            return list(range(start, end + 1))
+        table = self.engine_profile.item_table_66()
+        result = []
+        for item_id in range(start, end + 1):
+            offset = item_id * 0x19
+            if (table[offset + 0x11], table[offset + 0x12]) in pairs:
+                result.append(item_id)
+        return result
+
+    def _consumable_base(self):
+        mapping = self._consumable_mapping()
+        if mapping is None:
+            raise MemoryAccessError("6.6消耗品计数映射当前不可用")
+        base = self.engine_profile.addresses["consumable_counts"]
+        if mapping.get("baseDereference"):
+            base = self.memory_session.read_u32(base)
+        return base
+
+    def _consumable_address(self, item_id):
+        mapping = self._consumable_mapping()
+        if mapping is None:
+            raise MemoryAccessError("6.6消耗品计数映射当前不可用")
+        item_id = int(item_id)
+        explicit_ids = [int(item) for item in mapping.get("itemIds", [])]
+        explicit_addresses = [int(item) for item in mapping.get("addresses", [])]
+        if explicit_addresses:
+            if len(explicit_ids) != len(explicit_addresses):
+                raise MemoryAccessError("强制消耗品 ID 与地址数量不一致")
+            try:
+                return explicit_addresses[explicit_ids.index(item_id)]
+            except ValueError as exc:
+                raise MemoryAccessError("消耗品 ID 不在强制映射中") from exc
+        if not int(mapping["idMin"]) <= item_id <= int(mapping["idMax"]):
+            raise MemoryAccessError("消耗品 ID 超出已验证映射范围")
+        return (self._consumable_base() +
+                (item_id - int(mapping["idMin"])) * int(mapping["stride"]))
+
+    def _read_consumable(self, item_id):
+        mapping = self._consumable_mapping()
+        address = self._consumable_address(item_id)
+        width = int(mapping["width"])
+        raw = self.memory_session.read_bytes(address, width)
+        snapshots = getattr(self, "_consumable_snapshots", {})
+        snapshots[address] = raw
+        self._consumable_snapshots = snapshots
+        return int.from_bytes(raw, "little", signed=False)
+
+    def _consumable_entry(self, item_id, value):
+        mapping = self._consumable_mapping()
+        width = int(mapping["width"])
+        if not 0 <= int(value) < (1 << (width * 8)):
+            raise ValueError("消耗品数量超出 UInt%d 范围" % (width * 8))
+        return self._consumable_address(item_id), int(value).to_bytes(
+            width, "little", signed=False)
+
+    def _reject_feature(self, control, key):
+        capability = self.engine_profile.capability(key)
+        control.setChecked(False)
+        control.setToolTip(capability.reason)
+        self._set_status(capability.reason)
+
+    def _forced_mode(self):
+        return bool(self.engine_profile is not None and
+                    getattr(self.engine_profile, "direct_compatibility", False))
+
+    def _forced_legacy_patch(self, key):
+        # 6.6 只允许已解析的完整指令配方，不回退到旧版固定地址。
+        return None
+
+    def _apply_capabilities(self):
+        if self.engine_profile is None:
+            return
+        mapping = {
+            self.checkBox_1: "control_friendly",
+            self.checkBox_2: "control_all_factions",
+            self.checkBox_3: "control_no_ai",
+            self.checkBox_4: "control_move_after_wait",
+            self.checkBox_5: "control_move_255",
+            self.checkBox_6: "control_pass_through",
+            self.checkBox_7: "control_auto_return",
+            self.checkBox_8: "battle",
+            self.checkBox_9: "revive",
+            self.data_save: "person",
+            self.data_recal: "recalculate",
+            self.war_save: "battle",
+            self.war_kill: "battle",
+            self.war_life: "revive",
+            self.item_all_1: "item_bulk_treasure",
+            self.item_all_2: "item_consumables",
+            self.item_save_2: "effect",
+            self.var_save_1: "variables_bool",
+            self.var_save_2: "variables_int",
+            self.var_save_3: "variables_ptr",
+            self.diy_input_2: "diy",
+            self.item_save_4: "fatal",
+        }
+        for control, key in mapping.items():
+            capability = self.engine_profile.capability(key)
+            usable = self.engine_profile.can_write(key)
+            control.setEnabled(usable)
+            resolved = self.engine_profile.resolved_feature(key)
+            if usable:
+                control.setToolTip(self._feature_tooltip(key))
+            else:
+                control.setToolTip(resolved.reason or capability.reason)
+        item_save_usable = (self.engine_profile.can_write("warehouse") or
+                            self.engine_profile.can_write("item_consumables"))
+        self.item_save.setEnabled(item_save_usable)
+        if not item_save_usable:
+            self.item_save.setToolTip("仓库与消耗品当前均不可写")
+        clear_usable = (self.engine_profile.can_write("warehouse") and
+                        self.engine_profile.can_write("item_consumables"))
+        self.item_all_3.setEnabled(clear_usable)
+        if not clear_usable:
+            self.item_all_3.setToolTip("清空需要仓库与消耗品同时可写")
+        effect_save = (self.engine_profile.can_write("effect") and
+                       self.engine_profile.can_write("effect_exclusive"))
+        self.item_save_2.setEnabled(effect_save)
+        if not effect_save:
+            reasons = [self.engine_profile.resolved_feature(key).reason
+                       for key in ("effect", "effect_exclusive")
+                       if not self.engine_profile.can_write(key)]
+            self.item_save_2.setToolTip("；".join(item for item in reasons if item))
+        direction_capability = self.engine_profile.capability(
+            "turn_refresh_direction")
+        direction_warning = self._feature_tooltip("turn_refresh_direction")
+        self.war_input_16.setToolTip(
+            direction_warning if direction_warning else
+            ("使用已定位的转向入口" if
+             self.engine_profile.can_write("turn_refresh_direction") else
+             direction_capability.reason + "；当前仅保存方向字段"))
+        self.war_input_9.setToolTip("")
+        self.war_input_10.setToolTip("")
+
+    def _sync_66_patch_controls(self):
+        if self.engine_profile is None or not self.engine_profile.is_66:
+            return
+        controls = {
+            "control_friendly": self.checkBox_1,
+            "control_all_factions": self.checkBox_2,
+            "control_no_ai": self.checkBox_3,
+            "control_move_after_wait": self.checkBox_4,
+            "control_move_255": self.checkBox_5,
+            "control_pass_through": self.checkBox_6,
+            "control_auto_return": self.checkBox_7,
+        }
+        for key, control in controls.items():
+            patch = self.engine_profile.patches.get(key)
+            dynamic_patch = self.engine_profile.dynamic_patches.get(key)
+            checked = False
+            if patch is not None:
+                try:
+                    states = [self.memory_session.read_bytes(
+                        site.address, len(site.patched)) for site in patch.sites]
+                    checked = all(current == site.patched
+                                  for site, current in zip(patch.sites, states))
+                    original = all(current == site.original
+                                   for site, current in zip(patch.sites, states))
+                    if not checked and not original:
+                        reason = "%s存在部分补丁站点，拒绝接管" % patch.label
+                        control.setToolTip(reason)
+                        self._set_status(reason)
+                except MemoryAccessError:
+                    checked = False
+            elif dynamic_patch is not None:
+                checked = self.memory_session.is_dynamic_patch_enabled(key)
+            control.blockSignals(True)
+            control.setChecked(checked)
+            control.blockSignals(False)
+
+    def _detach_process(self):
+        global auto_life
+        global version
+        global addr_tianfu
+        global addr_bisha
+        global cnt_item
+        if self._detaching:
+            return
+        self._detaching = True
+        auto_life = False
+        version = int(EngineVersion.V63_MP)
+        if hasattr(self, "lock_timer"):
+            self.lock_timer.stop()
+        # 先停止定时器并使业务槽函数失效，再关闭句柄；否则清空列表会
+        # 通过 itemSelectionChanged 重入 onItem/onPower，访问已关闭会话。
+        if self.memory_session is not None:
+            try:
+                self.memory_session.close()
+            except Exception as exc:
+                self._set_status("关闭游戏会话失败: %s" % exc)
+        self.memory_session = None
+        self.engine_profile = None
+        self.md = NULL
+        self.p = NULL
+        self.ok = False
+        addr_tianfu = 0
+        addr_bisha = 0
+        cnt_item = 0
+        self._warehouse_snapshot = None
+        self._item_global_snapshot = None
+        self._consumable_snapshots = {}
+        self._effect_snapshot = None
+        self._exclusive_snapshot = None
+        self._shown_exclusive_state = None
+        self._fatal_snapshot = None
+        self._variable_byte_snapshots = {}
+        self._person_snapshot = None
+        self._auto_revive_attempts = {}
+        controls_to_clear = []
+        for name in ("listview_data", "listview_war", "listview_war_2",
+                     "listview_item", "listview_item_2", "listview_item_3",
+                     "listview_mk"):
+            control = getattr(self, name, None)
+            if control is not None:
+                controls_to_clear.append(control)
+                control.blockSignals(True)
+                control.clear()
+        for name in (
+                "item_input_1", "data_input_32", "data_input_35",
+                "data_input_38", "power_input_1_1", "power_input_1_2",
+                "power_input_1_3", "power_input_1_4", "power_input_1_9",
+                "power_input_1_11"):
+            control = getattr(self, name, None)
+            if control is not None:
+                control.clear()
+        if hasattr(self, "power_input_1_12"):
+            self._set_effect_layout(False)
+        lock_list.clear()
+        lock_hp.clear()
+        lock_mp.clear()
+        lock_ids.clear()
+        for control in controls_to_clear:
+            control.blockSignals(False)
+        self._detaching = False
+
+    def closeEvent(self, event):
+        self._detach_process()
+        event.accept()
+
     #打开第一页
     def on_action_C_triggered(self):
         self.widget_1.show()
@@ -3245,6 +3981,43 @@ class Ui_MainWindow(object):
         global cnt_you
         global cnt_di
         global auto_life
+        if version == 6 and n <= 7:
+            keys = {
+                1: "control_friendly",
+                2: "control_all_factions",
+                3: "control_no_ai",
+                4: "control_move_after_wait",
+                5: "control_move_255",
+                6: "control_pass_through",
+                7: "control_auto_return",
+            }
+            controls = {
+                1: self.checkBox_1, 2: self.checkBox_2, 3: self.checkBox_3,
+                4: self.checkBox_4, 5: self.checkBox_5, 6: self.checkBox_6,
+                7: self.checkBox_7,
+            }
+            key = keys[n]
+            control = controls[n]
+            capability = self.engine_profile.capability(key)
+            normal_patch = self.engine_profile.patches.get(key)
+            dynamic_patch = self.engine_profile.dynamic_patches.get(key)
+            if normal_patch is not None or dynamic_patch is not None:
+                try:
+                    if dynamic_patch is not None:
+                        self.memory_session.set_dynamic_patch(
+                            dynamic_patch, control.isChecked())
+                    else:
+                        self.memory_session.set_patch(
+                            normal_patch, control.isChecked())
+                    self._set_status(self.engine_profile.summary())
+                except (MemoryAccessError, PatchError) as exc:
+                    control.blockSignals(True)
+                    control.setChecked(not control.isChecked())
+                    control.blockSignals(False)
+                    self._set_status(str(exc))
+                return
+            # Unknown derivatives fall through to the historic fixed-address
+            # implementation instead of being disabled by capability evidence.
         if n == 1:
             if self.checkBox_1.isChecked() == True:
                 self.md.WriteProcessMemory(int(self.p), 0x43D574, ctypes.byref(ctypes.c_int(0xEB)), 1, None)
@@ -3268,7 +4041,7 @@ class Ui_MainWindow(object):
             if self.checkBox_2.isChecked() == True:
                 #self.md.WriteProcessMemory(int(self.p), 0x4242AF, ctypes.byref(ctypes.c_int(0x90)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x4242B0, ctypes.byref(ctypes.c_int(0x90)), 1, None)
-                if version == 0:
+                if version in (EngineVersion.V64, EngineVersion.V65):
                     self.md.WriteProcessMemory(int(self.p), 0x4242AF, ctypes.byref(ctypes.c_int(0x90)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x437BC0, ctypes.byref(ctypes.c_int(0x90)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x437BC1, ctypes.byref(ctypes.c_int(0x90)), 1, None)
@@ -3278,7 +4051,7 @@ class Ui_MainWindow(object):
             else:
                 #self.md.WriteProcessMemory(int(self.p), 0x4242AF, ctypes.byref(ctypes.c_int(0x74)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x4242B0, ctypes.byref(ctypes.c_int(0x32)), 1, None)
-                if version == 0:
+                if version in (EngineVersion.V64, EngineVersion.V65):
                     self.md.WriteProcessMemory(int(self.p), 0x4242AF, ctypes.byref(ctypes.c_int(0x74)), 1, None)
                     self.md.WriteProcessMemory(int(self.p), 0x4242B0, ctypes.byref(ctypes.c_int(0xDD)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x437BC0, ctypes.byref(ctypes.c_int(0x74)), 1, None)
@@ -3340,7 +4113,7 @@ class Ui_MainWindow(object):
                 self.md.WriteProcessMemory(int(self.p), 0x44EA77, ctypes.byref(ctypes.c_int(0x00)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x485E00, ctypes.byref(ctypes.c_long(0x83EC8B55)), 4, None)
                 self.md.WriteProcessMemory(int(self.p), 0x485E04, ctypes.byref(ctypes.c_long(0x75FF04EC)), 4, None)
-                if version >= 3:
+                if version in (EngineVersion.V62, EngineVersion.V61):
                     self.md.WriteProcessMemory(int(self.p), 0x485E08, ctypes.byref(ctypes.c_long(0x9E8DE808)), 4, None)
                     self.md.WriteProcessMemory(int(self.p), 0x485E0C, ctypes.byref(ctypes.c_long(0x4D8B0004)), 4, None)
                 else:
@@ -3356,7 +4129,8 @@ class Ui_MainWindow(object):
                 self.md.WriteProcessMemory(int(self.p), 0x485E24, ctypes.byref(ctypes.c_int(0x06)), 1, None)
                 self.md.WriteProcessMemory(int(self.p), 0x485E28, ctypes.byref(ctypes.c_long(0x4120D0F7)), 4, None)
                 self.md.WriteProcessMemory(int(self.p), 0x485E2C, ctypes.byref(ctypes.c_long(0x0D)), 1, None)
-                if version >= 1:
+                if version in (EngineVersion.V63_MP, EngineVersion.V63,
+                                EngineVersion.V62, EngineVersion.V61):
                     self.md.WriteProcessMemory(int(self.p), 0x485E2D, ctypes.byref(ctypes.c_long(0xE831FF)), 3, None)
                     self.md.WriteProcessMemory(int(self.p), 0x485E30, ctypes.byref(ctypes.c_long(0xFFFB86A2)), 4, None)
                     self.md.WriteProcessMemory(int(self.p), 0x485E34, ctypes.byref(ctypes.c_long(0x00008868)), 4, None)
@@ -3371,7 +4145,8 @@ class Ui_MainWindow(object):
                 self.md.WriteProcessMemory(int(self.p), 0x485E41, ctypes.byref(ctypes.c_long(0xFE5DE58B)), 4, None)
                 self.md.WriteProcessMemory(int(self.p), 0x485E45, ctypes.byref(ctypes.c_long(0x00C3FC4D)), 4, None)
             else:
-                if version <= 2:
+                if version in (-1, EngineVersion.V64, EngineVersion.V65,
+                               EngineVersion.V63_MP, EngineVersion.V63):
                     self.md.WriteProcessMemory(int(self.p), 0x44E571, ctypes.byref(ctypes.c_int(0xDD)), 1, None)
                     self.md.WriteProcessMemory(int(self.p), 0x44E572, ctypes.byref(ctypes.c_int(0x47)), 1, None)
                     self.md.WriteProcessMemory(int(self.p), 0x44E573, ctypes.byref(ctypes.c_int(0xFC)), 1, None)
@@ -3415,13 +4190,13 @@ class Ui_MainWindow(object):
         '''if n == 9:
             if self.checkBox_9.isChecked() == True:
                 self.md.WriteProcessMemory(int(self.p), 0x404388, ctypes.byref(ctypes.c_int(0xC3)), 1, None)
-                if version == 0:
+                if version in (EngineVersion.V64, EngineVersion.V65):
                     self.md.WriteProcessMemory(int(self.p), 0x4214A1, ctypes.byref(ctypes.c_int(0xC3)), 1, None)
                 else:
                     self.md.WriteProcessMemory(int(self.p), 0x4214C9, ctypes.byref(ctypes.c_int(0xC3)), 1, None)
             else:
                 self.md.WriteProcessMemory(int(self.p), 0x404388, ctypes.byref(ctypes.c_int(0x55)), 1, None)
-                if version == 0:
+                if version in (EngineVersion.V64, EngineVersion.V65):
                     self.md.WriteProcessMemory(int(self.p), 0x4214A1, ctypes.byref(ctypes.c_int(0x55)), 1, None)
                 else:
                     self.md.WriteProcessMemory(int(self.p), 0x4214C9, ctypes.byref(ctypes.c_int(0xC3)), 1, None)'''
@@ -3430,6 +4205,8 @@ class Ui_MainWindow(object):
 
     #扳手第二页人物data数据读入
     def onData(self):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global addr_war
         global len_war
         global cnt_wo
@@ -3437,22 +4214,58 @@ class Ui_MainWindow(object):
         global cnt_di
         global cnt_item
         global version
+        if version == 6 and not self._feature_readable("person"):
+            self._set_status(self.engine_profile.capability("person").reason)
+            return
         if len(self.listview_data.selectedIndexes())<=0:
             n = 0
         else:
             n = self.listview_data.selectedIndexes()[0].row()
+        if not 0 <= n < self.engine_profile.limits["person_count"]:
+            self._person_snapshot = None
+            self._set_status("人物编号越界")
+            return
+        person_r = self._profile_address("person_r", 0x0050F800)
+        person_s = self._profile_address("person_s", 0x00501000)
+        person_face = self._profile_address("person_face", 0x0050F000)
+        person_pointer = self._profile_address("person_pointer", 0x004CEA00)
+        gongxun = self._profile_address(
+            "merit", 0x00508000 if version in (0, 5, 6) else 0x00508400)
         data = ctypes.c_int()
         #R形象
-        self.md.ReadProcessMemory(int(self.p), 0x50F800+n*2, ctypes.byref(data), 2, None)
+        self.md.ReadProcessMemory(int(self.p), person_r+n*2, ctypes.byref(data), 2, None)
         self.data_input_1.setText(str(data.value))
         #S形象
-        self.md.ReadProcessMemory(int(self.p), 0x501000+n*2, ctypes.byref(data), 2, None)
+        self.md.ReadProcessMemory(int(self.p), person_s+n*2, ctypes.byref(data), 2, None)
         self.data_input_2.setText(str(data.value))
         #头像
-        self.md.ReadProcessMemory(int(self.p), 0x50F000+n*2, ctypes.byref(data), 2, None)
+        self.md.ReadProcessMemory(int(self.p), person_face+n*2, ctypes.byref(data), 2, None)
         self.data_input_3.setText(str(data.value))
-        mem = ctypes.c_long()
-        self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
+        mem = ctypes.c_uint32()
+        mem.value = self.memory_session.read_u32(person_pointer)
+        record_address = mem.value + 0x48 * n
+        record_raw = self.memory_session.read_actual_bytes(record_address, 0x48)
+        merit_raw = (self.memory_session.read_bytes(gongxun + 10 * n, 10)
+                     if n < self.engine_profile.limits["merit_count"] else b"")
+        self._person_snapshot = PersonPageSnapshot(
+            n, person_pointer, mem.value, record_address, record_raw,
+            self.memory_session.read_bytes(person_r + n * 2, 2),
+            self.memory_session.read_bytes(person_s + n * 2, 2),
+            self.memory_session.read_bytes(person_face + n * 2, 2),
+            merit_raw)
+        if version == EngineVersion.V66:
+            self.memory_session.clear_write_guards("person.")
+            self._person_pointer_snapshot = mem.value
+            self.memory_session.set_write_guard(
+                "person.main", mem.value + 0x48 * n,
+                self.memory_session.read_actual_bytes(
+                    mem.value + 0x48 * n, 0x48), actual_address=True)
+            for key, address in (
+                    ("person.r", person_r + n * 2),
+                    ("person.s", person_s + n * 2),
+                    ("person.face", person_face + n * 2)):
+                self.memory_session.set_write_guard(
+                    key, address, self.memory_session.read_bytes(address, 2))
         #攻击力
         self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x11, ctypes.byref(data), 2, None)
         self.data_input_4.setText(str(data.value))
@@ -3469,18 +4282,20 @@ class Ui_MainWindow(object):
         self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x19, ctypes.byref(data), 2, None)
         self.data_input_8.setText(str(data.value))
         #HP上限
-        if version <= 1:
-            self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x1B, ctypes.byref(data), 4, None)
+        if version in (-1, EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V63_MP, EngineVersion.V66):
+            hp_max = self.memory_session.read_u32(mem.value+0x48*n+0x1B)
         else:
-            self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x1C, ctypes.byref(data), 4, None)
-        self.data_input_9.setText(str(data.value))
+            hp_max = self.memory_session.read_u32(mem.value+0x48*n+0x1C)
+        self.data_input_9.setText(str(hp_max))
         data = ctypes.c_int(0)
         #MP上限
-        if version <= 1:
-            self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x1F, ctypes.byref(data), 2, None)
+        if version in (-1, EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V63_MP, EngineVersion.V66):
+            mp_max = self.memory_session.read_u16(mem.value+0x48*n+0x1F)
         else:
-            self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x20, ctypes.byref(data), 1, None)
-        self.data_input_10.setText(str(data.value))
+            mp_max = self.memory_session.read_u8(mem.value+0x48*n+0x20)
+        self.data_input_10.setText(str(mp_max))
         data = ctypes.c_int(0)
         #我军
         self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x2A, ctypes.byref(data), 1, None)
@@ -3515,25 +4330,18 @@ class Ui_MainWindow(object):
         #撤退
         self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x29, ctypes.byref(data), 1, None)
         self.data_input_20.setText(str(data.value))
-        if version == 0:
-            gongxun = 0x508000
-        else:
-            gongxun = 0x508400
-        #武力功勋
-        self.md.ReadProcessMemory(int(self.p), gongxun+10*n+0, ctypes.byref(data), 2, None)
-        self.data_input_21.setText(str(data.value))
-        #统率功勋
-        self.md.ReadProcessMemory(int(self.p), gongxun+10*n+2, ctypes.byref(data), 2, None)
-        self.data_input_22.setText(str(data.value))
-        #智力功勋
-        self.md.ReadProcessMemory(int(self.p), gongxun+10*n+4, ctypes.byref(data), 2, None)
-        self.data_input_23.setText(str(data.value))
-        #敏捷功勋
-        self.md.ReadProcessMemory(int(self.p), gongxun+10*n+6, ctypes.byref(data), 2, None)
-        self.data_input_24.setText(str(data.value))
-        #运气功勋
-        self.md.ReadProcessMemory(int(self.p), gongxun+10*n+8, ctypes.byref(data), 2, None)
-        self.data_input_25.setText(str(data.value))
+        if version == 6 and n < self.engine_profile.limits["merit_count"]:
+            self.memory_session.set_write_guard(
+                "person.merit", gongxun + 10 * n,
+                self.memory_session.read_bytes(gongxun + 10 * n, 10))
+        if n <= 101:
+            #五维功勋仅有 102 条记录。
+            merit_values = [self.memory_session.read_u16(gongxun+10*n+offset)
+                            for offset in (0, 2, 4, 6, 8)]
+            for widget, value in zip((
+                    self.data_input_21, self.data_input_22, self.data_input_23,
+                    self.data_input_24, self.data_input_25), merit_values):
+                widget.setText(str(value))
         #3
         self.md.ReadProcessMemory(int(self.p), mem.value+0x48*n+0x28, ctypes.byref(data), 1, None)
         self.data_input_26.setText(str(data.value))
@@ -3602,27 +4410,271 @@ class Ui_MainWindow(object):
 
     #扳手第二页保存按键
     def saveData(self):
+        global cnt_item
+        if not self._feature_enabled("person"):
+            reason = (self.engine_profile.capability("person").reason
+                      if self.engine_profile is not None else "尚未附加游戏进程")
+            self._set_status(reason or "人物数据当前不可写")
+            return
+        if len(self.listview_data.selectedIndexes()) <= 0:
+            return
+        n = self.listview_data.selectedIndexes()[0].row()
+        if not 0 <= n < self.engine_profile.limits["person_count"]:
+            self._set_status("人物编号越界")
+            return
+        snapshot = self._person_snapshot
+        if snapshot is None or snapshot.person_id != n:
+            self._set_status("人物读取快照不存在或选择已变化，请刷新后重试")
+            return
+
+        fields = (
+            ("r", self.data_input_1, 16, "R形象"),
+            ("s", self.data_input_2, 16, "S形象"),
+            ("face", self.data_input_3, 16, "头像"),
+            ("derived_attack", self.data_input_4, 16, "攻击力"),
+            ("derived_defense", self.data_input_5, 16, "防御力"),
+            ("derived_spirit", self.data_input_6, 16, "精神力"),
+            ("derived_agility", self.data_input_7, 16, "爆发力"),
+            ("derived_morale", self.data_input_8, 16, "士气"),
+            ("hp", self.data_input_9, 32, "HP上限"),
+            ("mp", self.data_input_10, 16 if version in
+             (-1, EngineVersion.V64, EngineVersion.V65,
+              EngineVersion.V63_MP, EngineVersion.V66) else 8, "MP上限"),
+            ("level", self.data_input_12, 8, "等级"),
+            ("experience", self.data_input_13, 8, "经验"),
+            ("base_strength", self.data_input_14, 8, "武力"),
+            ("base_command", self.data_input_15, 8, "统率"),
+            ("base_intelligence", self.data_input_16, 8, "智力"),
+            ("base_agility", self.data_input_17, 8, "敏捷"),
+            ("base_luck", self.data_input_18, 8, "运气"),
+            ("appearance", self.data_input_19, 8, "出场"),
+            ("retreat", self.data_input_20, 8, "撤退"),
+            ("unknown_28", self.data_input_26, 8, "人物字段28"),
+            ("unknown_06", self.data_input_27, 16, "人物字段06"),
+            ("unknown_44", self.data_input_28, 16, "人物字段44"),
+            ("unknown_46", self.data_input_29, 16, "人物字段46"),
+            ("kills", self.data_input_30, 16, "杀敌数"),
+            ("weapon_level", self.data_input_33, 8, "武器等级"),
+            ("weapon_experience", self.data_input_34, 8, "武器经验"),
+            ("armor_level", self.data_input_36, 8, "防具等级"),
+            ("armor_experience", self.data_input_37, 8, "防具经验"),
+        )
+        merit_widgets = (
+            (self.data_input_21, "武力功勋"),
+            (self.data_input_22, "统率功勋"),
+            (self.data_input_23, "智力功勋"),
+            (self.data_input_24, "敏捷功勋"),
+            (self.data_input_25, "运气功勋"),
+        )
+        try:
+            values = {key: self._parse_uint(widget, bits, label)
+                      for key, widget, bits, label in fields}
+            merit_values = ([self._parse_uint(widget, 16, label)
+                             for widget, label in merit_widgets]
+                            if snapshot.merit else [])
+        except (TypeError, ValueError) as exc:
+            self._set_status(str(exc))
+            return
+
+        if version in (EngineVersion.V64, EngineVersion.V65, EngineVersion.V66):
+            if not self._validate_equipment_selection(
+                    self.data_input_32, 0, 69, "Weapon"):
+                return
+            if not self._validate_equipment_selection(
+                    self.data_input_35, 70, 108, "Armor"):
+                return
+            if not self._validate_equipment_selection(
+                    self.data_input_38, 109,
+                    int(self.engine_profile.limits.get("equipment_count", 150)) - 1,
+                    "Accessory"):
+                return
+
+        def equipment_token(widget):
+            return 255 if widget.currentIndex() == cnt_item else widget.currentIndex()
+
+        job = self.data_input_31.currentIndex()
+        weapon = equipment_token(self.data_input_32)
+        armor = equipment_token(self.data_input_35)
+        accessory = equipment_token(self.data_input_38)
+        if any(not 0 <= value <= 255
+               for value in (job, weapon, armor, accessory)):
+            self._set_status("兵种或装备编号超出 UInt8 范围")
+            return
+
+        draft = bytearray(snapshot.record)
+
+        def put(offset, width, value):
+            draft[offset:offset + width] = int(value).to_bytes(
+                width, "little", signed=False)
+
+        for key, offset in (
+                ("derived_attack", 0x11), ("derived_defense", 0x13),
+                ("derived_spirit", 0x15), ("derived_agility", 0x17),
+                ("derived_morale", 0x19)):
+            put(offset, 2, values[key])
+        wide_hp_mp = version in (
+            -1, EngineVersion.V64, EngineVersion.V65,
+            EngineVersion.V63_MP, EngineVersion.V66)
+        put(0x1B if wide_hp_mp else 0x1C, 4, values["hp"])
+        put(0x1F if wide_hp_mp else 0x20,
+            2 if wide_hp_mp else 1, values["mp"])
+        for key, offset in (
+                ("base_strength", 0x21), ("base_command", 0x22),
+                ("base_intelligence", 0x23), ("base_agility", 0x24),
+                ("base_luck", 0x25), ("appearance", 0x27),
+                ("unknown_28", 0x28), ("retreat", 0x29),
+                ("level", 0x2C), ("experience", 0x2D),
+                ("weapon_level", 0x2F), ("weapon_experience", 0x30),
+                ("armor_level", 0x32), ("armor_experience", 0x33)):
+            put(offset, 1, values[key])
+        put(0x06, 2, values["unknown_06"])
+        put(0x2A, 1, 0 if self.data_input_11.isChecked() else 255)
+        put(0x2B, 1, job)
+        put(0x2E, 1, weapon)
+        put(0x31, 1, armor)
+        put(0x34, 1, accessory)
+        put(0x35, 2, values["kills"])
+        put(0x44, 2, values["unknown_44"])
+        put(0x46, 2, values["unknown_46"])
+
+        person_r = self._profile_address("person_r", 0x0050F800)
+        person_s = self._profile_address("person_s", 0x00501000)
+        person_face = self._profile_address("person_face", 0x0050F000)
+        merit_address = self._profile_address(
+            "merit", 0x00508000 if version in (0, 5, 6) else 0x00508400)
+        try:
+            current_base = self.memory_session.read_u32(
+                snapshot.pointer_reference)
+            if current_base != snapshot.person_base:
+                raise MemoryAccessError("人物数组指针已变化，请刷新后重试")
+            entries = [
+                CompareWriteEntry(snapshot.record_address, snapshot.record,
+                                  bytes(draft), actual_address=True),
+                CompareWriteEntry(person_r + n * 2, snapshot.r_image,
+                                  values["r"].to_bytes(2, "little")),
+                CompareWriteEntry(person_s + n * 2, snapshot.s_image,
+                                  values["s"].to_bytes(2, "little")),
+                CompareWriteEntry(person_face + n * 2, snapshot.face,
+                                  values["face"].to_bytes(2, "little")),
+            ]
+            if snapshot.merit:
+                merit_draft = b"".join(
+                    value.to_bytes(2, "little") for value in merit_values)
+                entries.append(CompareWriteEntry(
+                    merit_address + n * 10, snapshot.merit, merit_draft))
+            self.memory_session.guarded_compare_exchange_transaction(entries)
+        except (MemoryAccessError, TypeError, ValueError) as exc:
+            self._set_status("保存人物失败: %s" % exc)
+            return
+        try:
+            self.onData()
+        except MemoryAccessError as exc:
+            self._person_snapshot = None
+            self._set_status("人物已保存，但刷新失败: %s" % exc)
+
+    def _saveData_legacy_untransactional(self):
         global addr_war
         global len_war
         global cnt_wo
         global cnt_you
         global cnt_di
         global cnt_item
+        if version == 6 and not self._feature_enabled("person"):
+            self._set_status(self.engine_profile.capability("person").reason)
+            return
         if len(self.listview_data.selectedIndexes())<=0:
             return
         n = self.listview_data.selectedIndexes()[0].row()
+        if not 0 <= n < self.engine_profile.limits["person_count"]:
+            self._set_status("人物编号越界")
+            return
+        fields = [
+            (self.data_input_1, 16, "R形象"),
+            (self.data_input_2, 16, "S形象"),
+            (self.data_input_3, 16, "头像"),
+            (self.data_input_4, 16, "攻击力"),
+            (self.data_input_5, 16, "防御力"),
+            (self.data_input_6, 16, "精神力"),
+            (self.data_input_7, 16, "爆发力"),
+            (self.data_input_8, 16, "士气"),
+            (self.data_input_9, 32, "HP上限"),
+            (self.data_input_10, 16 if version in
+             (-1, EngineVersion.V64, EngineVersion.V65,
+              EngineVersion.V63_MP, EngineVersion.V66) else 8, "MP上限"),
+            (self.data_input_12, 8, "等级"),
+            (self.data_input_13, 8, "经验"),
+            (self.data_input_14, 8, "武力"),
+            (self.data_input_15, 8, "统率"),
+            (self.data_input_16, 8, "智力"),
+            (self.data_input_17, 8, "敏捷"),
+            (self.data_input_18, 8, "运气"),
+            (self.data_input_19, 8, "出场"),
+            (self.data_input_20, 8, "撤退"),
+            (self.data_input_26, 8, "人物字段28"),
+            (self.data_input_27, 16, "人物字段06"),
+            (self.data_input_28, 16, "人物字段44"),
+            (self.data_input_29, 16, "人物字段46"),
+            (self.data_input_30, 16, "杀敌数"),
+            (self.data_input_33, 8, "武器等级"),
+            (self.data_input_34, 8, "武器经验"),
+            (self.data_input_36, 8, "防具等级"),
+            (self.data_input_37, 8, "防具经验"),
+        ]
+        if n <= 101:
+            fields.extend((widget, 16, label) for widget, label in (
+                (self.data_input_21, "武力功勋"),
+                (self.data_input_22, "统率功勋"),
+                (self.data_input_23, "智力功勋"),
+                (self.data_input_24, "敏捷功勋"),
+                (self.data_input_25, "运气功勋"),
+            ))
+        try:
+            for widget, bits, label in fields:
+                self._parse_uint(widget, bits, label)
+        except (ValueError, TypeError) as exc:
+            self._set_status(str(exc))
+            return
+        if version in (EngineVersion.V64, EngineVersion.V65, EngineVersion.V66):
+            # Person equipment bytes are category-relative engine tokens.  The
+            # complete 0..254 catalog is visible, but consumable records must
+            # never be written into these three slots.
+            if not self._validate_equipment_selection(
+                    self.data_input_32, 0, 69, "Weapon"):
+                return
+            if not self._validate_equipment_selection(
+                    self.data_input_35, 70, 108, "Armor"):
+                return
+            if not self._validate_equipment_selection(
+                    self.data_input_38, 109,
+                    int(self.engine_profile.limits.get("equipment_count", 150)) - 1,
+                    "Accessory"):
+                return
+        person_r = self._profile_address("person_r", 0x0050F800)
+        person_s = self._profile_address("person_s", 0x00501000)
+        person_face = self._profile_address("person_face", 0x0050F000)
+        person_pointer = self._profile_address("person_pointer", 0x004CEA00)
+        if version == 6:
+            try:
+                current_person_base = self.memory_session.read_u32(person_pointer)
+                if current_person_base != getattr(
+                        self, "_person_pointer_snapshot", None):
+                    raise MemoryAccessError("人物数组指针已变化，请刷新后重试")
+                self.memory_session.verify_write_guards("person.")
+            except MemoryAccessError as exc:
+                self._set_status(str(exc))
+                return
         #R形象
         data = ctypes.c_int(int(self.data_input_1.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x50F800+n*2, ctypes.byref(data), 2, None)
-        
+        self.md.WriteProcessMemory(int(self.p), person_r+n*2, ctypes.byref(data), 2, None)
+
         #S形象
         data = ctypes.c_int(int(self.data_input_2.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x501000+n*2, ctypes.byref(data), 2, None)
+        self.md.WriteProcessMemory(int(self.p), person_s+n*2, ctypes.byref(data), 2, None)
         #头像
         data = ctypes.c_int(int(self.data_input_3.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x50F000+n*2, ctypes.byref(data), 2, None)
-        mem = ctypes.c_long()
-        self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
+        self.md.WriteProcessMemory(int(self.p), person_face+n*2, ctypes.byref(data), 2, None)
+        mem = ctypes.c_uint32()
+        mem.value = self.memory_session.read_u32(person_pointer)
         #攻击力
         data = ctypes.c_int(int(self.data_input_4.toPlainText()))
         self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x11, ctypes.byref(data), 2, None)
@@ -3640,13 +4692,15 @@ class Ui_MainWindow(object):
         self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x19, ctypes.byref(data), 2, None)
         #HP上限
         data = ctypes.c_int(int(self.data_input_9.toPlainText()))
-        if version <= 1:
+        if version in (-1, EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V63_MP, EngineVersion.V66):
             self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x1B, ctypes.byref(data), 4, None)
         else:
             self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x1C, ctypes.byref(data), 4, None)
         #MP上限
         data = ctypes.c_int(int(self.data_input_10.toPlainText()))
-        if version <= 1:
+        if version in (-1, EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V63_MP, EngineVersion.V66):
             self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x1F, ctypes.byref(data), 2, None)
         else:
             self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x20, ctypes.byref(data), 1, None)
@@ -3684,10 +4738,8 @@ class Ui_MainWindow(object):
         data = ctypes.c_int(int(self.data_input_20.toPlainText()))
         self.md.WriteProcessMemory(int(self.p), mem.value+0x48*n+0x29, ctypes.byref(data), 1, None)
         if n <= 101:
-            if version == 0:
-                gongxun = 0x508000
-            else:
-                gongxun = 0x508400
+            gongxun = self._profile_address(
+                "merit", 0x00508000 if version in (0, 5, 6) else 0x00508400)
             #武力功勋
             data = ctypes.c_int(int(self.data_input_21.toPlainText()))
             if n <= 101:
@@ -3756,21 +4808,30 @@ class Ui_MainWindow(object):
 
     #扳手第三页人物战场数据读入
     def onWar(self, kind):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global addr_war
         global len_war
         global cnt_wo
         global cnt_you
         global cnt_di
+        if version == 6 and not self._feature_readable("battle"):
+            self._set_status(self.engine_profile.capability("battle").reason)
+            return
+        save_state = self._profile_address("save_state", 0x004B0770)
+        battle_state = self._profile_address("battle_state", 0x004B3D08)
+        battle_sp = self._profile_address("battle_sp", 0x00501C00)
+        person_pointer = self._profile_address("person_pointer", 0x004CEA00)
         data = ctypes.c_int()
         data2 = ctypes.c_int()
         name = ctypes.c_byte()
-        mem = ctypes.c_int()
+        mem = ctypes.c_uint32()
         if kind == 0:
             n = 0
             if len(self.listview_war.selectedIndexes())>0:
                 n = self.listview_war.selectedIndexes()[0].row()
             self.listview_war.clear()
-            self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
+            mem.value = self.memory_session.read_u32(person_pointer)
             for i in range(0,cnt_wo + cnt_you + cnt_di):
                 self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war, ctypes.byref(data), 2, None)
                 if data.value!=65535:
@@ -3778,48 +4839,55 @@ class Ui_MainWindow(object):
                     if (data2.value==0 and self.war_kind_1.isChecked() == True)\
                         or (data2.value==1 and self.war_kind_2.isChecked() == True)\
                         or (data2.value>=2 and self.war_kind_3.isChecked() == True):
-                        names=b""
-                        for j in range(0,8):
-                            self.md.ReadProcessMemory(int(self.p), mem.value+data.value*0x48+j+8, ctypes.byref(name), 1, None)
-                            names+=name
-                        try:
-                            names=names.decode("gbk")
-                        except:
-                            names="非法字符"
+                        names = self._read_text(
+                            mem.value+data.value*0x48+8, 8)
                         self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war+4, ctypes.byref(data2), 1, None)
-                        self.listview_war.addItem(str(data2.value)+"/"+str(data.value)+":"+names)
+                        item = QtWidgets.QListWidgetItem(
+                            str(data2.value)+"/"+str(data.value)+":"+names)
+                        item.setData(QtCore.Qt.UserRole, i)
+                        self.listview_war.addItem(item)
             if n >= self.listview_war.count():
                 n = 0
             if self.listview_war.count()!=0:
                 self.listview_war.setCurrentRow(n)
 
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            return
         self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war, ctypes.byref(data), 2, None)
         data_code = data.value
+        if version == 6:
+            self.memory_session.clear_write_guards("battle.")
+            for key, address, size in (
+                    ("battle.unit", addr_war + war_code * len_war, len_war),
+                    ("battle.sp", battle_sp,
+                     self.engine_profile.limits["person_count"]),
+                    ("battle.state", battle_state, 0x12),
+                    ("battle.save", save_state, 7)):
+                self.memory_session.set_write_guard(
+                    key, address, self.memory_session.read_bytes(address, size))
 
         #角色
         self.war_input_1.setCurrentIndex(data_code)
         #HPCur
-        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x10, ctypes.byref(data), 4, None)
-        self.war_input_2.setText(str(data.value))
+        hp_current = self.memory_session.read_u32(
+            addr_war+war_code*len_war+0x10)
+        self.war_input_2.setText(str(hp_current))
         self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0xC, ctypes.byref(data2), 1, None)
-        if data.value == 0 and data2.value == 3:
+        # The dead-unit state controls the button.  Capability evidence is a
+        # warning in direct compatibility mode, never a second UI gate.
+        if hp_current == 0 and data2.value == 3:
             self.war_life.setEnabled(True)
             self.war_life.setStyleSheet("background-color:rgb(255, 255, 255);\ncolor:rgb(0,0,0)")
         else:
             self.war_life.setEnabled(False)
             self.war_life.setStyleSheet("background-color:rgb(255, 255, 255);\ncolor:rgb(190,190,190)")
         #MPCur
-        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x14, ctypes.byref(data), 4, None)
-        self.war_input_3.setText(str(data.value))
+        self.war_input_3.setText(str(self.memory_session.read_u32(
+            addr_war+war_code*len_war+0x14)))
         #SPCur
         data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), 0x501C00+data_code, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), battle_sp+data_code, ctypes.byref(data), 1, None)
         self.war_input_4.setText(str(data.value))
         #健康
         global condition_change
@@ -3882,23 +4950,17 @@ class Ui_MainWindow(object):
                 data2 = ctypes.c_int()
                 data3 = ctypes.c_int()
                 name = ctypes.c_byte()
-                mem = ctypes.c_int()
-                self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
+                mem = ctypes.c_uint32()
+                mem.value = self.memory_session.read_u32(person_pointer)
                 self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x8, ctypes.byref(data3), 1, None)
                 for i in range(0,cnt_wo + cnt_you + cnt_di):
                     self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war, ctypes.byref(data), 2, None)
                     if data.value!=65535:
                         self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war + 5, ctypes.byref(data2), 1, None)
-                        names=b""
-                        for j in range(0,8):
-                            self.md.ReadProcessMemory(int(self.p), mem.value+data.value*0x48+j+8, ctypes.byref(name), 1, None)
-                            names+=name
-                        try:
-                            names=names.decode("gbk")
-                        except:
-                            names="非法字符"
+                        names = self._read_text(
+                            mem.value+data.value*0x48+8, 8)
                         self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war+4, ctypes.byref(data2), 1, None)
-                        self.war_input_12.addItem(str(data2.value)+":"+names)
+                        self.war_input_12.addItem(str(data2.value)+":"+names, i)
                     if i == data3.value:
                         self.war_input_12.setCurrentIndex(self.war_input_12.count()-1)
                         global_1 = data3.value
@@ -4007,19 +5069,19 @@ class Ui_MainWindow(object):
         if data.value > 3:
             self.war_input_22.setCurrentIndex(2)
         #回合上限
-        self.md.ReadProcessMemory(int(self.p), 0x4B3D0B, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), battle_state+3, ctypes.byref(data), 1, None)
         self.war_input_24.setText(str(data.value))
         #当前回合
-        self.md.ReadProcessMemory(int(self.p), 0x4B3D0A, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), battle_state+2, ctypes.byref(data), 1, None)
         self.war_input_25.setText(str(data.value+1))
         #下一关
-        self.md.ReadProcessMemory(int(self.p), 0x4B0776, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), save_state+6, ctypes.byref(data), 1, None)
         self.war_input_26.setText(str((int)(data.value/2)+1))
         #天气
         data = ctypes.c_int()
         data2 = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(data), 1, None)
-        self.md.ReadProcessMemory(int(self.p), 0x4B3D19, ctypes.byref(data2), 1, None)
+        self.md.ReadProcessMemory(int(self.p), battle_state+4, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), battle_state+0x11, ctypes.byref(data2), 1, None)
         weather_list = [0,0,0,1,2,3,0,0,0,0,1,2,0,1,2,2,3,3,0,0,1,1,4,4,0,1,4,4,4,4]
         self.war_input_27.setCurrentIndex(weather_list[(data2.value*6+data.value)%30])
         #22
@@ -4029,7 +5091,8 @@ class Ui_MainWindow(object):
         self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x23, ctypes.byref(data), 1, None)
         self.war_input_39.setText(str(data.value))
 
-        if version == 0:
+        if version in (EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V66):
             self.war_input_40.setEnabled(True)
             self.war_input_41.setEnabled(True)
             self.war_input_42.setEnabled(True)
@@ -4037,22 +5100,22 @@ class Ui_MainWindow(object):
             self.war_input_44.setEnabled(True)
             self.war_input_45.setEnabled(True)
             #24
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x24, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x24, ctypes.byref(data), 1, None)
             self.war_input_40.setText(str(data.value))
             #26
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x26, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x26, ctypes.byref(data), 1, None)
             self.war_input_44.setText(str(data.value))
             #28
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x28, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x28, ctypes.byref(data), 1, None)
             self.war_input_41.setText(str(data.value))
             #2A
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x2A, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x2A, ctypes.byref(data), 1, None)
             self.war_input_45.setText(str(data.value))
             #2C
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x2C, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x2C, ctypes.byref(data), 1, None)
             self.war_input_42.setText(str(data.value))
             #2E
-            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*0x36+0x2E, ctypes.byref(data), 1, None)
+            self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x2E, ctypes.byref(data), 1, None)
             self.war_input_43.setText(str(data.value))
         else:
             self.war_input_40.setEnabled(False)
@@ -4069,11 +5132,59 @@ class Ui_MainWindow(object):
         global cnt_wo
         global cnt_you
         global cnt_di
+        if version == 6 and not self._feature_enabled("battle"):
+            self._set_status(self.engine_profile.capability("battle").reason)
+            return
+        save_state = self._profile_address("save_state", 0x004B0770)
+        battle_state = self._profile_address("battle_state", 0x004B3D08)
+        battle_sp = self._profile_address("battle_sp", 0x00501C00)
         if self.listview_war.currentRow()<0:
             return
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            return
+        try:
+            for widget, bits, label in (
+                    (self.war_input_2, 32, "当前HP"),
+                    (self.war_input_3, 32, "当前MP"),
+                    (self.war_input_4, 8, "当前SP"),
+                    (self.war_input_24, 8, "回合上限"),
+                    (self.war_input_25, 8, "当前回合"),
+                    (self.war_input_26, 8, "下一关"),
+                    (self.war_input_38, 8, "战场字段22"),
+                    (self.war_input_39, 8, "战场字段23")):
+                self._parse_uint(widget, bits, label)
+            if int(self.war_input_26.toPlainText()) > 128:
+                raise ValueError("下一关超出可编码范围 0..128")
+            if not self.war_kind_1.isChecked():
+                for widget, label in (
+                        (self.war_input_13, "方针X坐标"),
+                        (self.war_input_14, "方针Y坐标"),
+                        (self.war_input_36, "目标X坐标"),
+                        (self.war_input_37, "目标Y坐标")):
+                    self._parse_uint(widget, 8, label)
+            if version in (EngineVersion.V64, EngineVersion.V65,
+                           EngineVersion.V66):
+                for widget, label in (
+                        (self.war_input_40, "战场字段24"),
+                        (self.war_input_41, "战场字段28"),
+                        (self.war_input_42, "战场字段2C"),
+                        (self.war_input_43, "战场字段2E"),
+                        (self.war_input_44, "战场字段26"),
+                        (self.war_input_45, "战场字段2A")):
+                    self._parse_uint(widget, 8, label)
+        except (ValueError, TypeError) as exc:
+            self._set_status(str(exc))
+            return
+        if version == 6:
+            try:
+                self.memory_session.verify_write_guards("battle.")
+            except MemoryAccessError as exc:
+                self._set_status(str(exc))
+                return
         data = ctypes.c_int()
         #检查RS
-        self.md.ReadProcessMemory(int(self.p), 0x4B0776, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), save_state+6, ctypes.byref(data), 1, None)
         if data.value % 2 == 0:
             #HPCur
             data = ctypes.c_int(int(self.war_input_2.toPlainText()))
@@ -4082,14 +5193,8 @@ class Ui_MainWindow(object):
             data = ctypes.c_int(int(self.war_input_3.toPlainText()))
             self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x14, ctypes.byref(data), 4, None)
             return
-        
+
         data = ctypes.c_int()
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
 
         #角色
         data_code = self.war_input_1.currentIndex()
@@ -4103,7 +5208,7 @@ class Ui_MainWindow(object):
         self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x14, ctypes.byref(data), 4, None)
         #SPCur
         data = ctypes.c_int(int(self.war_input_4.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x501C00+data_code, ctypes.byref(data), 1, None)
+        self.md.WriteProcessMemory(int(self.p), battle_sp+data_code, ctypes.byref(data), 1, None)
         #健康
         global condition_change
         if condition_change == False:
@@ -4138,22 +5243,10 @@ class Ui_MainWindow(object):
             if sel == 5 or sel == 6:
                 self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0xE, ctypes.byref(ctypes.c_int(4)), 1, None)
             if sel == 3 or sel == 5:
-                a = 0
-                b = 0
-                for i in range(0,cnt_wo + cnt_you + cnt_di):
-                    self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war, ctypes.byref(data), 2, None)
-                    if data.value!=65535:
-                        if i < cnt_wo:
-                            a += 1
-                        elif i < cnt_wo + cnt_you:
-                            b += 1
-                c = self.war_input_12.currentIndex()
-                if c < a:
-                    data = ctypes.c_int(c)
-                elif c < b:
-                    data = ctypes.c_int(c-a+cnt_wo)
-                else :
-                    data = ctypes.c_int(c-a-b+cnt_wo+cnt_you)
+                target_slot = self.war_input_12.currentData()
+                if target_slot is None:
+                    target_slot = 0
+                data = ctypes.c_int(int(target_slot))
                 self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x8, ctypes.byref(data), 1, None)
             if sel == 4 or sel == 6:
                 data = ctypes.c_int(int(self.war_input_13.toPlainText()))
@@ -4243,28 +5336,28 @@ class Ui_MainWindow(object):
         self.war_input_23.setCurrentIndex(0)
         #回合上限
         data = ctypes.c_int(int(self.war_input_24.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x4B3D0B, ctypes.byref(data), 1, None)
+        self.md.WriteProcessMemory(int(self.p), battle_state+3, ctypes.byref(data), 1, None)
         #当前回合
         data = ctypes.c_int(int(self.war_input_25.toPlainText())-1)
-        self.md.WriteProcessMemory(int(self.p), 0x4B3D0A, ctypes.byref(data), 1, None)
+        self.md.WriteProcessMemory(int(self.p), battle_state+2, ctypes.byref(data), 1, None)
         #下一关
-        self.md.ReadProcessMemory(int(self.p), 0x4B0776, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), save_state+6, ctypes.byref(data), 1, None)
         if data.value % 2 == 1:
             data = ctypes.c_int(int(self.war_input_26.toPlainText()) * 2 - 1)
             if data.value >= 0:
-                self.md.WriteProcessMemory(int(self.p), 0x4B0776, ctypes.byref(data), 1, None)
+                self.md.WriteProcessMemory(int(self.p), save_state+6, ctypes.byref(data), 1, None)
         #天气
         if self.war_input_27.currentIndex() == 0:
-            self.md.WriteProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(ctypes.c_int(0)), 1, None)
+            self.md.WriteProcessMemory(int(self.p), battle_state+4, ctypes.byref(ctypes.c_int(0)), 1, None)
         if self.war_input_27.currentIndex() == 1:
-            self.md.WriteProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(ctypes.c_int(3)), 1, None)
+            self.md.WriteProcessMemory(int(self.p), battle_state+4, ctypes.byref(ctypes.c_int(3)), 1, None)
         if self.war_input_27.currentIndex() == 2:
-            self.md.WriteProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(ctypes.c_int(4)), 1, None)
+            self.md.WriteProcessMemory(int(self.p), battle_state+4, ctypes.byref(ctypes.c_int(4)), 1, None)
         if self.war_input_27.currentIndex() == 3:
-            self.md.WriteProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(ctypes.c_int(5)), 1, None)
+            self.md.WriteProcessMemory(int(self.p), battle_state+4, ctypes.byref(ctypes.c_int(5)), 1, None)
         if self.war_input_27.currentIndex() == 4:
-            self.md.WriteProcessMemory(int(self.p), 0x4B3D0C, ctypes.byref(ctypes.c_int(0x16)), 1, None)
-        self.md.WriteProcessMemory(int(self.p), 0x4B3D19, ctypes.byref(ctypes.c_int(0)), 1, None)
+            self.md.WriteProcessMemory(int(self.p), battle_state+4, ctypes.byref(ctypes.c_int(0x16)), 1, None)
+        self.md.WriteProcessMemory(int(self.p), battle_state+0x11, ctypes.byref(ctypes.c_int(0)), 1, None)
         #22
         data = ctypes.c_int(int(self.war_input_38.toPlainText()))
         self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x22, ctypes.byref(data), 1, None)
@@ -4287,23 +5380,23 @@ class Ui_MainWindow(object):
                 self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x18, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
         if self.war_input_30.currentIndex() != 0:
             for i in range(a,b):
-                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x19, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x19, ctypes.byref(ctypes.c_int(2*self.war_input_30.currentIndex()-1)), 1, None)
         if self.war_input_31.currentIndex() != 0:
             for i in range(a,b):
-                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1A, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1A, ctypes.byref(ctypes.c_int(2*self.war_input_31.currentIndex()-1)), 1, None)
         if self.war_input_32.currentIndex() != 0:
             for i in range(a,b):
-                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1B, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1B, ctypes.byref(ctypes.c_int(2*self.war_input_32.currentIndex()-1)), 1, None)
         if self.war_input_33.currentIndex() != 0:
             for i in range(a,b):
-                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1C, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1C, ctypes.byref(ctypes.c_int(2*self.war_input_33.currentIndex()-1)), 1, None)
         if self.war_input_34.currentIndex() != 0:
             for i in range(a,b):
-                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1D, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+0x1D, ctypes.byref(ctypes.c_int(2*self.war_input_34.currentIndex()-1)), 1, None)
         if self.war_input_35.currentIndex() != 0:
             for i in range(a,b):
                 for j in range(0x18,0x1E):
-                    self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+j, ctypes.byref(ctypes.c_int(2*self.war_input_29.currentIndex()-1)), 1, None)
+                    self.md.WriteProcessMemory(int(self.p), addr_war+i*len_war+j, ctypes.byref(ctypes.c_int(2*self.war_input_35.currentIndex()-1)), 1, None)
         self.war_input_29.setCurrentIndex(0)
         self.war_input_30.setCurrentIndex(0)
         self.war_input_31.setCurrentIndex(0)
@@ -4313,86 +5406,205 @@ class Ui_MainWindow(object):
         self.war_input_35.setCurrentIndex(0)
 
 
-        if version == 0:
+        if version in (EngineVersion.V64, EngineVersion.V65,
+                       EngineVersion.V66):
             #24
             data = ctypes.c_int(int(self.war_input_40.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x24, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x24, ctypes.byref(data), 1, None)
             #26
             data = ctypes.c_int(int(self.war_input_44.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x26, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x26, ctypes.byref(data), 1, None)
             #28
             data = ctypes.c_int(int(self.war_input_41.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x28, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x28, ctypes.byref(data), 1, None)
             #2A
             data = ctypes.c_int(int(self.war_input_45.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x2A, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x2A, ctypes.byref(data), 1, None)
             #2C
             data = ctypes.c_int(int(self.war_input_42.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x2C, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x2C, ctypes.byref(data), 1, None)
             #2E
             data = ctypes.c_int(int(self.war_input_43.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*0x36+0x2E, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), addr_war+war_code*len_war+0x2E, ctypes.byref(data), 1, None)
 
         self.onWar(1)
 
     def onItem(self):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global cnt_item
+        if self.listview_item.count() < 200:
+            return
+        if (self.listview_item.currentRow() < 0 and
+                self.listview_item_2.currentRow() < 0):
+            return
+        if not self._feature_readable("warehouse"):
+            self._set_status(self.engine_profile.capability("warehouse").reason)
+            return
+        warehouse = self._profile_address("warehouse", 0x004B0783)
+        money = self._profile_address("money", 0x004B077C)
+        alignment = self._profile_address("alignment", 0x004B0782)
+        merit_pool = self._profile_address("merit_pool", 0x00505F40)
         self.item_input_2.setText("0")
         self.item_input_3.setText("0")
         data = ctypes.c_int()
         for i in range(0,200):
-            self.md.ReadProcessMemory(int(self.p), 0x4B0783 + i * 3, ctypes.byref(data), 1, None)
-            if data.value!=255:
+            self.md.ReadProcessMemory(int(self.p), warehouse + i * 3, ctypes.byref(data), 1, None)
+            if data.value != 255 and data.value < cnt_item:
                 self.listview_item.item(i).setText(self.item_input_1.itemText(data.value))
+            elif data.value != 255:
+                self.listview_item.item(i).setText("无效编号:" + str(data.value))
             else:
                 self.listview_item.item(i).setText("空")
             if i == self.listview_item.currentRow():
-                self.item_input_1.setCurrentIndex(data.value)
-                if data.value == 255:
-                    self.item_input_1.setCurrentIndex(cnt_item)
-                self.md.ReadProcessMemory(int(self.p), 0x4B0783 + i * 3 + 1, ctypes.byref(data), 1, None)
+                self.item_input_1.setCurrentIndex(
+                    data.value if data.value < cnt_item else cnt_item)
+                self.md.ReadProcessMemory(int(self.p), warehouse + i * 3 + 1, ctypes.byref(data), 1, None)
                 self.item_input_2.setText(str(data.value))
-                self.md.ReadProcessMemory(int(self.p), 0x4B0783 + i * 3 + 2, ctypes.byref(data), 1, None)
+                self.md.ReadProcessMemory(int(self.p), warehouse + i * 3 + 2, ctypes.byref(data), 1, None)
                 self.item_input_3.setText(str(data.value))
 
         a = self.listview_item_2.currentRow()
-        if version >= 1:
+        consumable_value_available = True
+        if self._consumable_mapping() is not None:
+            consumables = self._consumable_ids()
+            if 0 <= a < len(consumables):
+                data.value = self._read_consumable(consumables[a])
+            else:
+                consumable_value_available = False
+                if 0 <= a < len(consumables):
+                    self._set_status(
+                        self.engine_profile.capability("item_consumables").reason)
+        elif version in (EngineVersion.V63_MP, EngineVersion.V63,
+                         EngineVersion.V62, EngineVersion.V61):
             if a <= 16:
                 self.md.ReadProcessMemory(int(self.p), 0x4B09DB + a, ctypes.byref(data), 1, None)
             else:
                 self.md.ReadProcessMemory(int(self.p), 0x510c80 + a - 17, ctypes.byref(data), 1, None)
         else:
-            self.md.ReadProcessMemory(int(self.p), 0x510c80 + a, ctypes.byref(data), 1, None)
-        self.item_input_4.setText(str(data.value))
+            consumable_value_available = False
+        self.item_input_4.setText(
+            str(data.value) if consumable_value_available else "")
 
-        self.md.ReadProcessMemory(int(self.p), 0x4B077C, ctypes.byref(data), 4, None)
-        self.item_input_5.setText(str(data.value))
+        self.item_input_5.setText(str(self.memory_session.read_u32(money)))
 
         data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), 0x4B0782, ctypes.byref(data), 1, None)
+        self.md.ReadProcessMemory(int(self.p), alignment, ctypes.byref(data), 1, None)
         self.item_input_6.setText(str(data.value))
 
-        data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), 0x505F40, ctypes.byref(data), 4, None)
-        self.item_input_7.setText(str(data.value))
-    
+        self.item_input_7.setText(str(self.memory_session.read_u32(merit_pool)))
+        self._item_global_snapshot = {
+            "money": self.memory_session.read_bytes(money, 4),
+            "alignment": self.memory_session.read_bytes(alignment, 1),
+            "merit": self.memory_session.read_bytes(merit_pool, 4),
+        }
+        selected_slot = self.listview_item.currentRow()
+        if 0 <= selected_slot < 200:
+            self._warehouse_snapshot = {
+                "slot": selected_slot,
+                "row": self.memory_session.read_bytes(
+                    warehouse + selected_slot * 3, 3),
+            }
+        else:
+            self._warehouse_snapshot = None
+
     def saveItem(self):
         global cnt_item
+        warehouse = self._profile_address("warehouse", 0x004B0783)
+        money = self._profile_address("money", 0x004B077C)
+        alignment = self._profile_address("alignment", 0x004B0782)
+        merit_pool = self._profile_address("merit_pool", 0x00505F40)
         a = self.listview_item.currentRow()
+        migrated_item_profile = version in (
+            EngineVersion.V64, EngineVersion.V65, EngineVersion.V66)
+        try:
+            level = (self._parse_uint(self.item_input_2, 8, "宝物等级")
+                     if 0 <= a < 200 else 0)
+            experience = (self._parse_uint(self.item_input_3, 8, "宝物经验")
+                          if 0 <= a < 200 else 0)
+            money_value = self._parse_uint(self.item_input_5, 32, "金钱")
+            alignment_value = self._parse_uint(self.item_input_6, 8, "忠奸度")
+            merit_value = self._parse_uint(self.item_input_7, 32, "功勋池")
+            consumable_value = None
+            mapping = self._consumable_mapping()
+            if mapping is not None and self.listview_item_2.currentRow() >= 0:
+                consumable_value = self._parse_uint(
+                    self.item_input_4, int(mapping["width"]) * 8, "消耗品数量")
+        except (ValueError, TypeError) as exc:
+            self._set_status(str(exc))
+            return
+        if migrated_item_profile:
+            entries = []
+            if 0 <= a < 200:
+                row = bytearray(self.memory_session.read_bytes(
+                    warehouse + a * 3, 3))
+                raw_item = int(row[0])
+                selected_item = self.item_input_1.currentIndex()
+                if selected_item != cnt_item:
+                    if not self._is_item_record(selected_item):
+                        self._set_status("Invalid warehouse item selection")
+                        return
+                    if (selected_item != raw_item and
+                            not self._is_equipment_item(selected_item)):
+                        self._set_status("Consumables cannot be written to equipment warehouse")
+                        return
+                    if selected_item != raw_item:
+                        row[0] = selected_item
+                        row[1] = level
+                        row[2] = experience
+                elif raw_item != 255 and raw_item < cnt_item:
+                    row[0] = 255
+                entries.append((warehouse + a * 3, bytes(row)))
+            consumable_row = self.listview_item_2.currentRow()
+            consumables = self._consumable_ids()
+            if (consumable_value is not None and
+                    0 <= consumable_row < len(consumables)):
+                address, encoded = self._consumable_entry(
+                    consumables[consumable_row], consumable_value)
+                entries.append((address, encoded))
+            entries.extend((
+                (money, money_value.to_bytes(4, "little")),
+                (alignment, bytes((alignment_value,))),
+                (merit_pool, merit_value.to_bytes(4, "little")),
+            ))
+            try:
+                for address, replacement in entries:
+                    self.memory_session.write_bytes(
+                        address, replacement, verify=False)
+            except MemoryAccessError as exc:
+                self._set_status(str(exc))
+                return
+            self.onItem.__call__()
+            return
+        if not 0 <= a < 200:
+            self._set_status("仓库槽位必须在 0..199 范围内")
+            return
         if self.item_input_1.currentIndex() != cnt_item:
             data = ctypes.c_int(self.item_input_1.currentIndex())
-            self.md.WriteProcessMemory(int(self.p), 0x4B0783 + a * 3, ctypes.byref(data), 1, None)
-            data = ctypes.c_int(int(self.item_input_2.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), 0x4B0783 + a * 3 + 1, ctypes.byref(data), 1, None)
-            data = ctypes.c_int(int(self.item_input_3.toPlainText()))
-            self.md.WriteProcessMemory(int(self.p), 0x4B0783 + a * 3 + 2, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), warehouse + a * 3, ctypes.byref(data), 1, None)
+            data = ctypes.c_int(level)
+            self.md.WriteProcessMemory(int(self.p), warehouse + a * 3 + 1, ctypes.byref(data), 1, None)
+            data = ctypes.c_int(experience)
+            self.md.WriteProcessMemory(int(self.p), warehouse + a * 3 + 2, ctypes.byref(data), 1, None)
         else:
             data = ctypes.c_int(255)
-            self.md.WriteProcessMemory(int(self.p), 0x4B0783 + a * 3, ctypes.byref(data), 1, None)
+            self.md.WriteProcessMemory(int(self.p), warehouse + a * 3, ctypes.byref(data), 1, None)
 
         a = self.listview_item_2.currentRow()
-        data = ctypes.c_int(int(self.item_input_4.toPlainText()))
-        if version >= 1:
+        data = ctypes.c_int(int(self.item_input_4.toPlainText() or "0"))
+        if version == 6:
+            consumables = self._consumable_ids()
+            if (consumable_value is not None and 0 <= a < len(consumables)):
+                address, encoded = self._consumable_entry(
+                    consumables[a], consumable_value)
+                expected = getattr(self, "_consumable_snapshots", {}).get(address)
+                if expected is None:
+                    raise MemoryAccessError("消耗品数量尚未读取，请先刷新")
+                self.memory_session.compare_exchange_transaction((
+                    CompareWriteEntry(address, expected, encoded),
+                ))
+                self._consumable_snapshots[address] = encoded
+        elif version >= 1:
             if a <= 16:
                 self.md.WriteProcessMemory(int(self.p), 0x4B09DB + a, ctypes.byref(data), 1, None)
             else:
@@ -4400,275 +5612,656 @@ class Ui_MainWindow(object):
         else:
             self.md.WriteProcessMemory(int(self.p), 0x510c80 + a, ctypes.byref(data), 1, None)
 
-        data = ctypes.c_int(int(self.item_input_5.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x4B077C, ctypes.byref(data), 4, None)
+        data = ctypes.c_int(money_value)
+        self.md.WriteProcessMemory(int(self.p), money, ctypes.byref(data), 4, None)
 
-        data = ctypes.c_int(int(self.item_input_6.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x4B0782, ctypes.byref(data), 1, None)
+        data = ctypes.c_int(alignment_value)
+        self.md.WriteProcessMemory(int(self.p), alignment, ctypes.byref(data), 1, None)
 
-        data = ctypes.c_int(int(self.item_input_7.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), 0x505F40, ctypes.byref(data), 4, None)
+        data = ctypes.c_int(merit_value)
+        self.md.WriteProcessMemory(int(self.p), merit_pool, ctypes.byref(data), 4, None)
 
         self.onItem()
 
+    def _effect_layout(self):
+        if self.engine_profile is None:
+            raise MemoryAccessError("尚未建立引擎画像")
+        layout = self.engine_profile.resolved_feature("effect").layout
+        if not isinstance(layout, TableLayoutSpec):
+            raise MemoryAccessError("当前引擎没有已识别的特效表布局")
+        return layout
+
+    def _resolve_effect_table(self, layout=None):
+        layout = layout or self._effect_layout()
+        if layout.resolver == AddressResolverKind.FIXED_RVA:
+            base = self.memory_session.resolve_reference(layout.reference)
+            pointer_reference = None
+        elif layout.resolver == AddressResolverKind.POINTER_RVA:
+            try:
+                base = self.memory_session.read_u32(layout.reference)
+                pointer_reference = layout.reference
+            except MemoryAccessError:
+                # Compatibility for isolated UI fixtures and an already
+                # resolved legacy caller.  Real attached sessions always keep
+                # the pointer reference readable and therefore do not use it.
+                global addr_tianfu
+                if addr_tianfu <= 0:
+                    raise
+                base = int(addr_tianfu)
+                pointer_reference = None
+        else:
+            raise MemoryAccessError("当前特效表地址解析方式尚未接线")
+        if not self.memory_session.validate_actual_range(
+                base, layout.stride, write=False):
+            raise MemoryAccessError(
+                "特效表首行不可读: 0x%08X+0x%X" % (base, layout.stride))
+        if self.engine_profile is not None:
+            descriptor = self.engine_profile.metadata.get(
+                "table_descriptors", {}).get("effect")
+            full_range_available = (
+                isinstance(descriptor, ResolvedTableDescriptor) and
+                self.memory_session.validate_actual_range(
+                    base, descriptor.byte_size, write=False))
+            if getattr(self.memory_session, "pid", None) is not None or full_range_available:
+                self.engine_profile.refresh_table_descriptor_runtime(
+                    "effect", self.memory_session, base)
+        return base, pointer_reference
+
+    def _effect_row_address_66(self, effect_id):
+        layout = self._effect_layout()
+        if not 0 <= effect_id < layout.record_count:
+            raise ValueError("特效编号越界")
+        base, _pointer = self._resolve_effect_table(layout)
+        return base + effect_id * layout.stride
+
+    def _read_effect_snapshot(self, effect_id):
+        layout = self._effect_layout()
+        if not 0 <= effect_id < layout.record_count:
+            raise ValueError("特效编号越界")
+        table_base, pointer_reference = self._resolve_effect_table(layout)
+        address = table_base + effect_id * layout.stride
+        raw = self.memory_session.read_actual_bytes(address, layout.stride)
+        if layout.codec == "effect-4+2-v1":
+            decoded = parse_effect_assignment_row_66(raw)
+        elif layout.codec == "effect-3+1-v1":
+            decoded = parse_effect_assignment_row_8(raw)
+        else:
+            raise MemoryAccessError("不支持的特效表编解码器: %s" % layout.codec)
+        descriptor = self.engine_profile.metadata.get(
+            "table_descriptors", {}).get("effect")
+        generation = (descriptor.generation
+                      if (isinstance(descriptor, ResolvedTableDescriptor) and
+                          descriptor.generation)
+                      else "%08X:%d:%d" %
+                      (table_base, layout.stride, layout.record_count))
+        snapshot = RawRecordSnapshot(
+            "effect", address, raw, decoded, table_base,
+            pointer_reference=pointer_reference,
+            pointer_value=(table_base if pointer_reference is not None else None),
+            generation=generation)
+        self._effect_snapshot = snapshot
+        return snapshot
+
+    def _commit_effect_snapshot(self, replacement):
+        snapshot = getattr(self, "_effect_snapshot", None)
+        if not isinstance(snapshot, RawRecordSnapshot):
+            raise MemoryAccessError("特效记录尚未读取，请先刷新")
+        layout = self._effect_layout()
+        if len(replacement) != len(snapshot.raw):
+            raise MemoryAccessError("特效记录编码长度与读取快照不一致")
+        self.memory_session.write_actual_bytes(
+            snapshot.address, replacement, verify=False)
+        decoded = (parse_effect_assignment_row_66(replacement)
+                   if layout.codec == "effect-4+2-v1" else
+                   parse_effect_assignment_row_8(replacement))
+        self._effect_snapshot = RawRecordSnapshot(
+            "effect", snapshot.address, replacement, decoded,
+            snapshot.table_base, snapshot.pointer_reference,
+            snapshot.pointer_value, snapshot.generation)
+
+    def _read_exclusive_snapshot(self, effect_id):
+        global addr_zhuanshu
+        effect_count = self.engine_profile.limits.get("effect_count", 255)
+        if not 0 <= effect_id < effect_count:
+            raise ValueError("专属/套装特效编号越界")
+        address = addr_zhuanshu + effect_id * 16
+        raw = self.memory_session.read_bytes(address, 16)
+        snapshot = RawRecordSnapshot(
+            "effect_exclusive", address, raw, raw, addr_zhuanshu,
+            generation="%08X:16:%d" % (addr_zhuanshu, effect_count))
+        self._exclusive_snapshot = snapshot
+        return snapshot
+
+    def _exclusive_ui_state(self):
+        members = []
+        for index, (person, item, value) in enumerate((
+                (self.power_input_2_1, self.power_input_2_2,
+                 self.power_input_2_3),
+                (self.power_input_2_4, self.power_input_2_5,
+                 self.power_input_2_6)), 1):
+            members.append((
+                person.currentIndex(), item.currentIndex(),
+                self._parse_uint(value, 8, "专属%d特效值" % index)))
+        sets = []
+        for index, (item1, item2, item3, value) in enumerate((
+                (self.power_input_3_1, self.power_input_3_2,
+                 self.power_input_3_3, self.power_input_3_4),
+                (self.power_input_3_5, self.power_input_3_6,
+                 self.power_input_3_7, self.power_input_3_8)), 1):
+            sets.append((
+                item1.currentIndex(), item2.currentIndex(),
+                item3.currentIndex(),
+                self._parse_uint(value, 8, "套装%d特效值" % index)))
+        return tuple(members), tuple(sets)
+
+    def _exclusive_state_from_raw(self, raw):
+        global cnt_item
+        if len(raw) != 16:
+            raise ValueError("专属/套装记录必须正好是16字节")
+        person_count = self.engine_profile.limits["person_count"]
+        members = []
+        for offset in (0, 4):
+            raw_person = int.from_bytes(raw[offset:offset + 2], "little")
+            raw_item = raw[offset + 2]
+            raw_value = raw[offset + 3]
+            members.append((
+                raw_person if raw_person < person_count and raw_value != 0
+                else person_count,
+                raw_item if raw_item < cnt_item and raw_value != 0
+                else cnt_item,
+                raw_value,
+            ))
+        sets = []
+        for offset in (8, 12):
+            raw_value = raw[offset + 3]
+            sets.append(tuple(
+                raw_item if raw_item < cnt_item and raw_value != 0
+                else cnt_item
+                for raw_item in raw[offset:offset + 3]
+            ) + (raw_value,))
+        return tuple(members), tuple(sets)
+
+    def _show_exclusive_assignment(self, raw):
+        state = self._exclusive_state_from_raw(raw)
+        for values, (person, item, value) in zip(state[0], (
+                (self.power_input_2_1, self.power_input_2_2,
+                 self.power_input_2_3),
+                (self.power_input_2_4, self.power_input_2_5,
+                 self.power_input_2_6))):
+            person.setCurrentIndex(values[0])
+            item.setCurrentIndex(values[1])
+            value.setText(str(values[2]))
+        for values, (item1, item2, item3, value) in zip(state[1], (
+                (self.power_input_3_1, self.power_input_3_2,
+                 self.power_input_3_3, self.power_input_3_4),
+                (self.power_input_3_5, self.power_input_3_6,
+                 self.power_input_3_7, self.power_input_3_8))):
+            item1.setCurrentIndex(values[0])
+            item2.setCurrentIndex(values[1])
+            item3.setCurrentIndex(values[2])
+            value.setText(str(values[3]))
+        self._shown_exclusive_state = self._exclusive_ui_state()
+
+    @staticmethod
+    def _encode_exclusive_choice(value, empty_index, empty_value, label):
+        if value == empty_index:
+            return empty_value
+        if 0 <= value < empty_index:
+            return value
+        raise ValueError("%s未选择有效目标" % label)
+
+    def _encode_exclusive_equipment_choice(self, value, label):
+        if value == cnt_item:
+            return 255
+        if self._is_equipment_item(value):
+            return int(value)
+        raise ValueError("%s cannot use an item/consumable ID" % label)
+
+    def _collect_exclusive_assignment(self, effect_id=None):
+        global cnt_item
+        snapshot = getattr(self, "_exclusive_snapshot", None)
+        shown = getattr(self, "_shown_exclusive_state", None)
+        if not isinstance(snapshot, RawRecordSnapshot) or shown is None:
+            if effect_id is None:
+                raise MemoryAccessError("专属/套装记录缓存缺失且未提供特效编号")
+            snapshot = self._read_exclusive_snapshot(effect_id)
+            shown = self._exclusive_state_from_raw(snapshot.raw)
+        current = self._exclusive_ui_state()
+        replacement = bytearray(snapshot.raw)
+        person_count = self.engine_profile.limits["person_count"]
+        for index, (before, after) in enumerate(zip(shown[0], current[0])):
+            if before == after:
+                continue
+            offset = index * 4
+            if after[2] == 0:
+                replacement[offset:offset + 4] = b"\0" * 4
+                continue
+            if before[0] != after[0]:
+                person_id = self._encode_exclusive_choice(
+                    after[0], person_count, person_count,
+                    "专属%d角色" % (index + 1))
+                replacement[offset:offset + 2] = person_id.to_bytes(
+                    2, "little")
+            if before[1] != after[1]:
+                replacement[offset + 2] = self._encode_exclusive_equipment_choice(
+                    after[1], "exclusive item")
+            if before[2] != after[2]:
+                replacement[offset + 3] = after[2]
+        for index, (before, after) in enumerate(zip(shown[1], current[1])):
+            if before == after:
+                continue
+            offset = 8 + index * 4
+            if after[3] == 0:
+                replacement[offset:offset + 4] = b"\0" * 4
+                continue
+            for item_index in range(3):
+                if before[item_index] == after[item_index]:
+                    continue
+                replacement[offset + item_index] = (
+                    self._encode_exclusive_equipment_choice(
+                        after[item_index], "set item"))
+            if before[3] != after[3]:
+                replacement[offset + 3] = after[3]
+        return bytes(replacement)
+
+    def _write_exclusive_assignment(self, effect_id, replacement):
+        global addr_zhuanshu
+        address = addr_zhuanshu + effect_id * 16
+        if len(replacement) != 16:
+            raise ValueError("专属/套装记录编码长度错误")
+        self.memory_session.write_bytes(address, replacement, verify=False)
+        self._exclusive_snapshot = RawRecordSnapshot(
+            "effect_exclusive", address, replacement, replacement,
+            addr_zhuanshu, generation="%08X:16:%d" % (
+                addr_zhuanshu,
+                self.engine_profile.limits.get("effect_count", 255)))
+
+    def _commit_power_snapshots(self, effect_id, effect_replacement,
+                                exclusive_replacement):
+        global addr_zhuanshu
+        layout = self._effect_layout()
+        if len(effect_replacement) != layout.stride:
+            raise ValueError("特效记录编码长度错误")
+        if len(exclusive_replacement) != 16:
+            raise ValueError("专属/套装记录编码长度错误")
+        table_base, pointer_reference = self._resolve_effect_table(layout)
+        effect_address = table_base + effect_id * layout.stride
+        exclusive_address = addr_zhuanshu + effect_id * 16
+        self.memory_session.write_actual_bytes(
+            effect_address, effect_replacement, verify=False)
+        self.memory_session.write_bytes(
+            exclusive_address, exclusive_replacement, verify=False)
+        effect_decoded = (
+            parse_effect_assignment_row_66(effect_replacement)
+            if layout.codec == "effect-4+2-v1" else
+            parse_effect_assignment_row_8(effect_replacement))
+        self._effect_snapshot = RawRecordSnapshot(
+            "effect", effect_address, effect_replacement,
+            effect_decoded, table_base, pointer_reference,
+            table_base if pointer_reference is not None else None,
+            "%08X:%d:%d" %
+            (table_base, layout.stride, layout.record_count))
+        self._exclusive_snapshot = RawRecordSnapshot(
+            "effect_exclusive", exclusive_address,
+            exclusive_replacement, exclusive_replacement, addr_zhuanshu,
+            generation="%08X:16:%d" %
+            (addr_zhuanshu, self.engine_profile.limits.get(
+                "effect_count", 255)))
+
+    def _read_effect_assignment_66(self, effect_id):
+        snapshot = self._read_effect_snapshot(effect_id)
+        if not isinstance(snapshot.decoded, EffectAssignmentRow66):
+            raise ValueError("当前特效记录不是 4角色2兵种布局")
+        return snapshot.decoded
+
+    def _show_effect_assignment_66(self, row):
+        self._shown_effect_assignment_66 = row
+        person_inputs = (self.power_input_1_1, self.power_input_1_2,
+                         self.power_input_1_3, self.power_input_1_4)
+        person_values = (self.power_input_1_5, self.power_input_1_6,
+                         self.power_input_1_7, self.power_input_1_8)
+        job_inputs = (self.power_input_1_9, self.power_input_1_11)
+        job_values = (self.power_input_1_10, self.power_input_1_12)
+        character_count = self.engine_profile.limits["person_count"]
+        for slot, target, value in zip(row.characters, person_inputs,
+                                       person_values):
+            target.setCurrentIndex(slot.target_id
+                                   if slot.target_id < character_count
+                                   else character_count)
+            value.setText(str(slot.effect_value))
+        for slot, target, value in zip(row.jobs, job_inputs, job_values):
+            target.setCurrentIndex(slot.target_id
+                                   if slot.target_id < EFFECT_JOB_COUNT_66
+                                   else EFFECT_JOB_COUNT_66)
+            value.setText(str(slot.effect_value))
+
+    def _collect_effect_assignment_66(self):
+        person_inputs = (self.power_input_1_1, self.power_input_1_2,
+                         self.power_input_1_3, self.power_input_1_4)
+        person_values = (self.power_input_1_5, self.power_input_1_6,
+                         self.power_input_1_7, self.power_input_1_8)
+        job_inputs = (self.power_input_1_9, self.power_input_1_11)
+        job_values = (self.power_input_1_10, self.power_input_1_12)
+        characters = []
+        character_count = self.engine_profile.limits["person_count"]
+        shown_row = getattr(self, "_shown_effect_assignment_66", None)
+        for index, (target, value) in enumerate(zip(person_inputs,
+                                                     person_values)):
+            target_id = target.currentIndex()
+            if target_id == character_count:
+                shown_target = (shown_row.characters[index].target_id
+                                if shown_row is not None else -1)
+                target_id = (shown_target
+                             if shown_target >= character_count
+                             else character_count)
+            elif not 0 <= target_id < character_count:
+                raise ValueError("角色%d未选择有效目标" % (index + 1))
+            characters.append(EffectAssignmentSlot66(
+                target_id, self._parse_uint(
+                    value, 8, "角色%d特效值" % (index + 1))))
+        jobs = []
+        for index, (target, value) in enumerate(zip(job_inputs, job_values), 1):
+            target_id = target.currentIndex()
+            if target_id == EFFECT_JOB_COUNT_66:
+                shown_target = (shown_row.jobs[index - 1].target_id
+                                if shown_row is not None else -1)
+                target_id = (shown_target
+                             if shown_target >= EFFECT_JOB_COUNT_66 else 255)
+            elif not 0 <= target_id < EFFECT_JOB_COUNT_66:
+                raise ValueError("兵种%d未选择有效目标" % index)
+            jobs.append(EffectAssignmentSlot66(
+                target_id, self._parse_uint(value, 8, "兵种%d特效值" % index)))
+        return EffectAssignmentRow66(tuple(characters), tuple(jobs))
+
+    def _write_effect_assignment_66(self, effect_id, row):
+        address = self._effect_row_address_66(effect_id)
+        encoded = encode_effect_assignment_row_66(row)
+        self.memory_session.write_actual_bytes(address, encoded, verify=False)
+
+    def _show_effect_assignment_8(self, row):
+        self._shown_effect_assignment_8 = row
+        character_count = self.engine_profile.limits["person_count"]
+        for target, target_id in zip(
+                (self.power_input_1_1, self.power_input_1_2,
+                 self.power_input_1_3), row.characters):
+            target.setCurrentIndex(target_id if target_id < character_count
+                                   else character_count)
+        self.power_input_1_4.setCurrentIndex(
+            row.job_id if row.job_id < EFFECT_JOB_COUNT_66
+            else EFFECT_JOB_COUNT_66)
+        self.power_input_1_5.setText(str(row.effect_value))
+
+    def _collect_effect_assignment_8(self):
+        character_count = self.engine_profile.limits["person_count"]
+        shown = getattr(self, "_shown_effect_assignment_8", None)
+        characters = []
+        for index, target in enumerate((
+                self.power_input_1_1, self.power_input_1_2,
+                self.power_input_1_3)):
+            target_id = target.currentIndex()
+            if target_id == character_count:
+                shown_target = (shown.characters[index]
+                                if shown is not None else -1)
+                target_id = (shown_target if shown_target >= character_count
+                             else character_count)
+            elif not 0 <= target_id < character_count:
+                raise ValueError("角色%d未选择有效目标" % (index + 1))
+            characters.append(target_id)
+        job_id = self.power_input_1_4.currentIndex()
+        if job_id == EFFECT_JOB_COUNT_66:
+            shown_job = shown.job_id if shown is not None else -1
+            job_id = shown_job if shown_job >= EFFECT_JOB_COUNT_66 else 255
+        elif not 0 <= job_id < EFFECT_JOB_COUNT_66:
+            raise ValueError("兵种未选择有效目标")
+        return EffectAssignmentRow8(
+            tuple(characters), job_id,
+            self._parse_uint(self.power_input_1_5, 8, "天赋值"))
+
+    def _write_effect_assignment_8(self, effect_id, row):
+        address = self._effect_row_address_66(effect_id)
+        self.memory_session.write_actual_bytes(
+            address, encode_effect_assignment_row_8(row), verify=False)
+
     def onPower(self):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global cnt_item
         global addr_tianfu
         global addr_zhuanshu
-        data = ctypes.c_int()
+        if self.listview_item_3.currentRow() < 0:
+            return
+        if not self._feature_readable("effect"):
+            self._set_status(self.engine_profile.resolved_feature("effect").reason)
+            return
         a = self.listview_item_3.currentRow()
         #天赋
-        self.md.ReadProcessMemory(int(self.p), addr_tianfu + a * 8, ctypes.byref(data), 2, None)
-        self.power_input_1_1.setCurrentIndex(data.value)
-        self.md.ReadProcessMemory(int(self.p), addr_tianfu + a * 8 + 2, ctypes.byref(data), 2, None)
-        self.power_input_1_2.setCurrentIndex(data.value)
-        self.md.ReadProcessMemory(int(self.p), addr_tianfu + a * 8 + 4, ctypes.byref(data), 2, None)
-        self.power_input_1_3.setCurrentIndex(data.value)
-        data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), addr_tianfu + a * 8 + 6, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_1_4.setCurrentIndex(data.value)
-        else:
-            self.power_input_1_4.setCurrentIndex(80)
-        self.md.ReadProcessMemory(int(self.p), addr_tianfu + a * 8 + 7, ctypes.byref(data), 1, None)
-        self.power_input_1_5.setText(str(data.value))
-        #专属1
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16, ctypes.byref(data), 2, None)
-        self.power_input_2_1.setCurrentIndex(data.value)
-        data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 2, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_2_2.setCurrentIndex(data.value)
-        else:
-            self.power_input_2_2.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 3, ctypes.byref(data), 1, None)
-        self.power_input_2_3.setText(str(data.value))
-        if data.value == 0:
-            self.power_input_2_1.setCurrentIndex(1024)
-            self.power_input_2_2.setCurrentIndex(cnt_item)
-        #专属2
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 4, ctypes.byref(data), 2, None)
-        self.power_input_2_4.setCurrentIndex(data.value)
-        data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 6, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_2_5.setCurrentIndex(data.value)
-        else:
-            self.power_input_2_5.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 7, ctypes.byref(data), 1, None)
-        self.power_input_2_6.setText(str(data.value))
-        if data.value == 0:
-            self.power_input_2_4.setCurrentIndex(1024)
-            self.power_input_2_5.setCurrentIndex(cnt_item)
-        #套装1
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 8, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_1.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_1.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 9, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_2.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_2.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 10, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_3.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_3.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 11, ctypes.byref(data), 1, None)
-        self.power_input_3_4.setText(str(data.value))
-        if data.value == 0:
-            self.power_input_3_1.setCurrentIndex(cnt_item)
-            self.power_input_3_2.setCurrentIndex(cnt_item)
-            self.power_input_3_3.setCurrentIndex(cnt_item)
-        #套装2
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 12, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_5.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_5.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 13, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_6.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_6.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 14, ctypes.byref(data), 1, None)
-        if data.value != 255:
-            self.power_input_3_7.setCurrentIndex(data.value)
-        else:
-            self.power_input_3_7.setCurrentIndex(cnt_item)
-        self.md.ReadProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 15, ctypes.byref(data), 1, None)
-        self.power_input_3_8.setText(str(data.value))
-        if data.value == 0:
-            self.power_input_3_5.setCurrentIndex(cnt_item)
-            self.power_input_3_6.setCurrentIndex(cnt_item)
-            self.power_input_3_7.setCurrentIndex(cnt_item)
+        try:
+            layout = self._effect_layout()
+            snapshot = self._read_effect_snapshot(a)
+            if layout.codec == "effect-4+2-v1":
+                self._set_effect_layout(True)
+                self._shown_effect_assignment_8 = None
+                self._show_effect_assignment_66(snapshot.decoded)
+            elif layout.codec == "effect-3+1-v1":
+                self._set_effect_layout(False)
+                self._shown_effect_assignment_66 = None
+                self._show_effect_assignment_8(snapshot.decoded)
+            else:
+                raise ValueError("未知特效表布局: %s" % layout.codec)
+        except (MemoryAccessError, ValueError) as exc:
+            self._set_status("读取特效分配失败: %s" % exc)
+            return
+        if not self._feature_readable("effect_exclusive"):
+            self._set_status(
+                "特效分配已读取；专属/套装只读结构未识别，未继续读取")
+            return
+        try:
+            exclusive = self._read_exclusive_snapshot(a)
+            self._show_exclusive_assignment(exclusive.raw)
+        except (MemoryAccessError, ValueError) as exc:
+            self._set_status("读取专属/套装失败: %s" % exc)
 
     def savePower(self):
-        global cnt_item
-        global addr_zhuanshu
+        if (not self._feature_writable("effect") or
+                not self._feature_writable("effect_exclusive")):
+            reasons = [self.engine_profile.resolved_feature(key).reason
+                       for key in ("effect", "effect_exclusive")
+                       if not self._feature_writable(key)]
+            self._set_status("；".join(item for item in reasons if item) or
+                             "天赋或专属/套装当前不可写")
+            return
         a = self.listview_item_3.currentRow()
-        #天赋
-        data = self.power_input_1_1.currentIndex()
-        self.md.WriteProcessMemory(int(self.p), addr_tianfu + a * 8, ctypes.byref(ctypes.c_int(data)), 2, None)
-        data = self.power_input_1_2.currentIndex()
-        self.md.WriteProcessMemory(int(self.p), addr_tianfu + a * 8 + 2, ctypes.byref(ctypes.c_int(data)), 2, None)
-        data = self.power_input_1_3.currentIndex()
-        self.md.WriteProcessMemory(int(self.p), addr_tianfu + a * 8 + 4, ctypes.byref(ctypes.c_int(data)), 2, None)
-        data = self.power_input_1_4.currentIndex()
-        if data == 80:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_tianfu + a * 8 + 6, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = ctypes.c_int(int(self.power_input_1_5.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), addr_tianfu + a * 8 + 7, ctypes.byref(data), 1, None)
-        #专属1
-        data = self.power_input_2_1.currentIndex()
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16, ctypes.byref(ctypes.c_int(data)), 2, None)
-        data = self.power_input_2_2.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 2, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = ctypes.c_int(int(self.power_input_2_3.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 3, ctypes.byref(data), 1, None)
-        if data.value == 0:
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16, ctypes.byref(ctypes.c_int(0)), 2, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 2, ctypes.byref(ctypes.c_int(0)), 1, None)
-        #专属2
-        data = self.power_input_2_4.currentIndex()
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 4, ctypes.byref(ctypes.c_int(data)), 2, None)
-        data = self.power_input_2_5.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 6, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = ctypes.c_int(int(self.power_input_2_6.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 7, ctypes.byref(data), 1, None)
-        if data.value == 0:
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 4, ctypes.byref(ctypes.c_int(0)), 2, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 6, ctypes.byref(ctypes.c_int(0)), 1, None)
-        #套装1
-        data = self.power_input_3_1.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 8, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = self.power_input_3_2.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 9, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = self.power_input_3_3.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 10, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = ctypes.c_int(int(self.power_input_3_4.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 11, ctypes.byref(data), 1, None)
-        if data.value == 0:
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 8, ctypes.byref(ctypes.c_int(0)), 1, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 9, ctypes.byref(ctypes.c_int(0)), 1, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 10, ctypes.byref(ctypes.c_int(0)), 1, None)
-        #套装2
-        data = self.power_input_3_5.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 12, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = self.power_input_3_6.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 13, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = self.power_input_3_7.currentIndex()
-        if data == cnt_item:
-            data = 255
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 14, ctypes.byref(ctypes.c_int(data)), 1, None)
-        data = ctypes.c_int(int(self.power_input_3_8.toPlainText()))
-        self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 15, ctypes.byref(data), 1, None)
-        if data.value == 0:
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 12, ctypes.byref(ctypes.c_int(0)), 1, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 13, ctypes.byref(ctypes.c_int(0)), 1, None)
-            self.md.WriteProcessMemory(int(self.p), addr_zhuanshu + a * 16 + 14, ctypes.byref(ctypes.c_int(0)), 1, None)
-
+        if a < 0:
+            return
+        try:
+            layout = self._effect_layout()
+            if layout.codec == "effect-4+2-v1":
+                effect_replacement = encode_effect_assignment_row_66(
+                    self._collect_effect_assignment_66())
+            elif layout.codec == "effect-3+1-v1":
+                effect_replacement = encode_effect_assignment_row_8(
+                    self._collect_effect_assignment_8())
+            else:
+                raise ValueError("未知特效表布局: %s" % layout.codec)
+            exclusive_replacement = self._collect_exclusive_assignment(a)
+            self._commit_power_snapshots(
+                a, effect_replacement, exclusive_replacement)
+        except (MemoryAccessError, ValueError) as exc:
+            self._set_status("保存天赋/专属/套装失败: %s" % exc)
+            return
         self.onPower()
 
-    def onVar(self):
-        while self.listview_var_1.rowCount() != 0:
-            self.listview_var_1.removeRow(0)
-        while self.listview_var_2.rowCount() != 0:
-            self.listview_var_2.removeRow(0)
-        while self.listview_var_3.rowCount() != 0:
-            self.listview_var_3.removeRow(0)
-        data = ctypes.c_int()
-        a = int(self.var_input_1.toPlainText())
-        if a > 4096:
-            a = 0
-        for i in range(a,min(a+100,4096)):
-            self.md.ReadProcessMemory(int(self.p), 0x492FC8 + i * 4, ctypes.byref(data), 4, None)
-            self.listview_var_1.insertRow(i-a)
-            self.listview_var_1.setItem(i-a,0,QtWidgets.QTableWidgetItem(str(i)))
-            if data.value == 0:
-                self.listview_var_1.setItem(i-a,1,QtWidgets.QTableWidgetItem("False"))
-                self.listview_var_1.item(i-a,1).setForeground(QtGui.QBrush(QtGui.QColor(0, 0, 255)))
-            else:
-                self.listview_var_1.setItem(i-a,1,QtWidgets.QTableWidgetItem("True"))
-                self.listview_var_1.item(i-a,1).setForeground(QtGui.QBrush(QtGui.QColor(255, 0, 0)))
-            self.listview_var_1.setItem(i-a,2,QtWidgets.QTableWidgetItem('{:06X}'.format(0x492FC8+i*4)))
-        a = int(self.var_input_2.toPlainText())
-        if a > 4096:
-            a = 0
-        for i in range(a,min(a+100,4096)):
-            self.md.ReadProcessMemory(int(self.p), 0x502000 + i * 4, ctypes.byref(data), 4, None)
-            self.listview_var_2.insertRow(i-a)
-            self.listview_var_2.setItem(i-a,0,QtWidgets.QTableWidgetItem(str(i)))
-            self.listview_var_2.setItem(i-a,1,QtWidgets.QTableWidgetItem(str(data.value)))
-            self.listview_var_2.setItem(i-a,2,QtWidgets.QTableWidgetItem('{:06X}'.format(0x502000+i*4)))
-        a = int(self.var_input_3.toPlainText())
-        if a > 4096:
-            a = 0
-        for i in range(a,min(a+100,4096)):
-            self.md.ReadProcessMemory(int(self.p), 0x506000 + i * 4, ctypes.byref(data), 4, None)
-            self.listview_var_3.insertRow(i-a)
-            self.listview_var_3.setItem(i-a,0,QtWidgets.QTableWidgetItem(str(i)))
-            self.listview_var_3.setItem(i-a,1,QtWidgets.QTableWidgetItem(str(data.value)))
-            self.listview_var_3.setItem(i-a,2,QtWidgets.QTableWidgetItem('{:06X}'.format(0x506000+i*4)))   
+    def onVar(self, kind=None):
+        if (self._detaching or self.memory_session is None or
+                self.engine_profile is None):
+            return
+        definitions = {
+            1: ("variables_bool", self.var_input_1, self.listview_var_1),
+            2: ("variables_int", self.var_input_2, self.listview_var_2),
+            3: ("variables_ptr", self.var_input_3, self.listview_var_3),
+        }
+        if kind not in (None, 1, 2, 3):
+            self._set_status("未知变量类型")
+            return
+        selected = (1, 2, 3) if kind is None else (kind,)
+        for current_kind in selected:
+            capability_key, input_widget, table = definitions[current_kind]
+            text = input_widget.toPlainText().strip()
+            try:
+                if not text:
+                    raise ValueError("起始编号不能为空")
+                start = int(text, 10)
+                record_count = self._variable_record_count(capability_key)
+                if not 0 <= start < record_count:
+                    raise ValueError(
+                        "起始编号必须在 0..%d" % (record_count - 1))
+                values = self._variable_values(capability_key, start)
+            except (MemoryAccessError, TypeError, ValueError) as exc:
+                self._set_status("读取变量失败: %s" % exc)
+                return
+            table.setRowCount(0)
+            for offset, value in enumerate(values):
+                variable_index = start + offset
+                row = table.rowCount()
+                table.insertRow(row)
+                table.setItem(row, 0, self._readonly_table_item(variable_index))
+                if current_kind == 1:
+                    value_item = QtWidgets.QTableWidgetItem(
+                        "True" if value else "False")
+                    value_item.setForeground(QtGui.QBrush(QtGui.QColor(
+                        255, 0, 0) if value else QtGui.QColor(0, 0, 255)))
+                else:
+                    value_item = QtWidgets.QTableWidgetItem(str(value))
+                    if current_kind == 3:
+                        value_item.setToolTip("0x%08X" % value)
+                table.setItem(row, 1, value_item)
+                address = self._variable_address(
+                    capability_key, variable_index)
+                table.setItem(
+                    row, 2, self._readonly_table_item("%06X" % address))
 
     def saveVar(self, kind):
-        if kind == 1:
-            if self.listview_var_1.currentRow() >= 0:
-                addr = self.listview_var_1.item(self.listview_var_1.currentRow(),2)
-                value = self.listview_var_1.item(self.listview_var_1.currentRow(),1)
-                if value.data(0) == "True" or value.data(0) == "1" or value.data(0) == "t":
-                    data = 1
+        capability_key = {1: "variables_bool", 2: "variables_int",
+                          3: "variables_ptr"}.get(kind)
+        if capability_key is None:
+            self._set_status("未知变量类型")
+            return
+        if version == 6 and not self._feature_enabled(capability_key):
+            self._set_status(self.engine_profile.capability(capability_key).reason)
+            return
+        table = {1: self.listview_var_1, 2: self.listview_var_2,
+                 3: self.listview_var_3}[kind]
+        row = table.currentRow()
+        if row < 0:
+            return
+        try:
+            variable_index = int(table.item(row, 0).text(), 10)
+            record_count = self._variable_record_count(capability_key)
+            if not 0 <= variable_index < record_count:
+                raise ValueError(
+                    "变量编号必须在 0..%d" % (record_count - 1))
+            address = self._variable_address(capability_key, variable_index)
+            layout = self._variable_layout(capability_key)
+            expected = self._variable_byte_snapshots.get(
+                (capability_key, address))
+            if expected is None:
+                raise MemoryAccessError("变量读取快照不存在，请刷新后重试")
+            text = table.item(row, 1).text().strip()
+            if kind == 1:
+                tokens = {"true": 1, "1": 1, "false": 0, "0": 0}
+                if text.lower() not in tokens:
+                    raise ValueError("布尔值仅接受 True/False/1/0")
+                data = tokens[text.lower()]
+                if layout.get("storage") == "bitset":
+                    bit_mask = self._variable_bit_mask(layout, variable_index)
+                    changed = ((expected[0] | bit_mask) if data else
+                               (expected[0] & ~bit_mask))
+                    replacement = bytes((changed,))
                 else:
-                    data = 0
-                self.md.WriteProcessMemory(int(self.p), int(addr.data(0),16), ctypes.byref(ctypes.c_int(data)), 4, None)
-        elif kind == 2:
-            if self.listview_var_2.currentRow() >= 0:
-                addr = self.listview_var_2.item(self.listview_var_2.currentRow(),2)
-                value = self.listview_var_2.item(self.listview_var_2.currentRow(),1)
-                data = int(value.data(0))
-                self.md.WriteProcessMemory(int(self.p), int(addr.data(0),16), ctypes.byref(ctypes.c_int(data)), 4, None)
-        elif kind == 3:
-            if self.listview_var_3.currentRow() >= 0:
-                addr = self.listview_var_3.item(self.listview_var_3.currentRow(),2)
-                value = self.listview_var_3.item(self.listview_var_3.currentRow(),1)
-                data = int(value.data(0))
-                self.md.WriteProcessMemory(int(self.p), int(addr.data(0),16), ctypes.byref(ctypes.c_int(data)), 4, None)
-        self.onVar() 
+                    replacement = data.to_bytes(
+                        int(layout["width"]), "little", signed=False)
+            elif kind == 2:
+                data = int(text, 10)
+                if not -0x80000000 <= data <= 0x7FFFFFFF:
+                    raise ValueError("整型变量超出 Int32 范围")
+                replacement = data.to_bytes(
+                    int(layout["width"]), "little", signed=True)
+            else:
+                data = (int(text, 16) if text.lower().startswith("0x")
+                        else int(text, 10))
+                if not 0 <= data <= 0xFFFFFFFF:
+                    raise ValueError("指针变量超出 UInt32 范围")
+                replacement = data.to_bytes(
+                    int(layout["width"]), "little", signed=False)
+            self.memory_session.guarded_compare_exchange_transaction((
+                CompareWriteEntry(address, expected, replacement),
+            ))
+        except (MemoryAccessError, OverflowError, TypeError, ValueError) as exc:
+            self._set_status("保存变量失败: %s" % exc)
+            return
+        self.onVar(kind)
 
     def saveDIY(self):
+        if not self._feature_writable("diy"):
+            reason = (self.engine_profile.resolved_feature("diy").reason
+                      if self.engine_profile is not None else
+                      "尚未附加游戏进程")
+            self._set_status(reason or "自定义写入当前不可用")
+            return
         if self.listview_diy.currentRow() < 0:
             return
         n = self.listview_diy.currentRow()
         try:
             addr = int(self.listview_diy.item(n,3).text(),16)
-            cnt = int(self.listview_diy.item(n,4).text(),16)
+            cnt = int(self.listview_diy.item(n,4).text(),10)
             num = int(self.listview_diy.item(n,1).text(),10)
-            self.md.WriteProcessMemory(int(self.p), addr, ctypes.byref(ctypes.c_int(num)), cnt, None)
+            if cnt not in (1, 2, 4):
+                raise ValueError("自定义字段宽度只能是 1、2 或 4")
+            if not 0 <= num < (1 << (cnt * 8)):
+                raise ValueError("自定义数值超出 UInt%d 范围" % (cnt * 8))
+            if not self.memory_session.validate_range(addr, cnt, write=True):
+                raise ValueError("自定义地址不在可写内存页内")
+            self.memory_session.write_bytes(addr, num.to_bytes(cnt, "little"))
             self.DIY_Page(1)
-        except:
+        except (ValueError, MemoryAccessError) as exc:
+            self._set_status(str(exc))
             return
 
     def onMk(self):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global addr_bisha
+        if version == 6 and not self._feature_readable("fatal"):
+            self._set_status(self.engine_profile.capability("fatal").reason)
+            return
         data = ctypes.c_int()
         a = self.listview_mk.currentRow()
+        if a < 0 or (version == 6 and a >= 80) or addr_bisha == 0:
+            return
+        if version == 6:
+            row_address = addr_bisha + a * 16
+            row = self.memory_session.read_actual_bytes(row_address, 16)
+            pointer_reference = self.engine_profile.addresses.get(
+                "fatal_pointer")
+            self._fatal_snapshot = RawRecordSnapshot(
+                "fatal", row_address, row, None, addr_bisha,
+                pointer_reference=pointer_reference,
+                pointer_value=(addr_bisha if pointer_reference else None),
+                generation="%08X:16:80" % addr_bisha)
+            person_controls = [
+                self.mk_input_1_1, self.mk_input_1_3, self.mk_input_1_5,
+                self.mk_input_1_7, self.mk_input_1_9,
+            ]
+            level_controls = [
+                self.mk_input_1_2, self.mk_input_1_4, self.mk_input_1_6,
+                self.mk_input_1_8, self.mk_input_1_10,
+            ]
+            for index, offset in enumerate((0, 3, 6, 9, 12)):
+                person_controls[index].setCurrentIndex(
+                    int.from_bytes(row[offset:offset+2], "little"))
+                level_controls[index].setText(str(row[offset+2]))
+            self.mk_input_1_11.setText(str(row[15]))
+            return
         #天赋
         self.md.ReadProcessMemory(int(self.p), addr_bisha + a * 16, ctypes.byref(data), 2, None)
         self.mk_input_1_1.setCurrentIndex(data.value)
@@ -4694,10 +6287,53 @@ class Ui_MainWindow(object):
 
         self.md.ReadProcessMemory(int(self.p), addr_bisha + a * 16 + 15, ctypes.byref(data), 1, None)
         self.mk_input_1_11.setText(str(data.value))
-    
+
     def saveMk(self):
         global addr_bisha
+        if version == 6 and not self._feature_enabled("fatal"):
+            self._set_status(self.engine_profile.capability("fatal").reason)
+            return
         a = self.listview_mk.currentRow()
+        if version == 6:
+            if not 0 <= a < 80 or addr_bisha == 0:
+                self._set_status("必杀记录或运行时指针无效")
+                return
+            person_values = [
+                self.mk_input_1_1.currentIndex(),
+                self.mk_input_1_3.currentIndex(),
+                self.mk_input_1_5.currentIndex(),
+                self.mk_input_1_7.currentIndex(),
+                self.mk_input_1_9.currentIndex(),
+            ]
+            level_widgets = [
+                self.mk_input_1_2, self.mk_input_1_4, self.mk_input_1_6,
+                self.mk_input_1_8, self.mk_input_1_10,
+            ]
+            try:
+                levels = [self._parse_uint(widget, 8, "必杀领悟等级")
+                          for widget in level_widgets]
+                effect_value = self._parse_uint(self.mk_input_1_11, 8, "必杀效果值")
+                if any(not 0 <= value <= 0xFFFF for value in person_values):
+                    raise ValueError("必杀武将编号超出 UInt16 范围")
+                row_address = addr_bisha + a * 16
+                pointer_reference = self.engine_profile.addresses.get(
+                    "fatal_pointer")
+                row = bytearray(16)
+                for index, offset in enumerate((0, 3, 6, 9, 12)):
+                    row[offset:offset+2] = person_values[index].to_bytes(2, "little")
+                    row[offset+2] = levels[index]
+                row[15] = effect_value
+                replacement = bytes(row)
+                self.memory_session.write_actual_bytes(
+                    row_address, replacement, verify=False)
+                self._fatal_snapshot = RawRecordSnapshot(
+                    "fatal", row_address, replacement, None, addr_bisha,
+                    pointer_reference,
+                    addr_bisha if pointer_reference is not None else None,
+                    "%08X:16:80" % addr_bisha)
+            except (ValueError, MemoryAccessError) as exc:
+                self._set_status(str(exc))
+            return
         #天赋
         data = self.mk_input_1_1.currentIndex()
         self.md.WriteProcessMemory(int(self.p), addr_bisha + a * 16, ctypes.byref(ctypes.c_int(data)), 2, None)
@@ -4727,11 +6363,15 @@ class Ui_MainWindow(object):
         if event.buttons () == QtCore.Qt.LeftButton:
             if event.x()>self.label_pivot.x() and event.x()<self.label_pivot.x()+self.label_pivot.width()\
             and event.y()-20>self.label_pivot.y() and event.y()-20<self.label_pivot.y()+self.label_pivot.height():
-                x = win32gui.LoadImage(0,'准星.cur',win32con.IMAGE_CURSOR,0,0,win32con.LR_LOADFROMFILE)
+                try:
+                    x = self._load_cursor_file(self.resource_dir / '准星.cur')
+                except OSError as exc:
+                    self._set_status(str(exc))
+                    return
                 win32api.SetCursor(x)
                 self.label_pivot.setPixmap(QtGui.QPixmap(""))
                 self.mouse_capture = True
-    
+
     def mouseReleaseEvent(self, event):
         if self.mouse_capture == False:
             return
@@ -4739,27 +6379,30 @@ class Ui_MainWindow(object):
         x = win32gui.LoadImage(0,32512,win32con.IMAGE_CURSOR,0,0,win32con.LR_SHARED)
         win32api.SetCursor(x)
         #还原准星
-        pix = QtGui.QPixmap('准星.png')
+        pivot_path = self.resource_dir / '准星.png'
+        if not pivot_path.exists():
+            pivot_path = self.resource_dir / '准星.cur'
+        pix = QtGui.QPixmap(str(pivot_path))
         self.label_pivot.setPixmap(pix)
         self.mouse_capture = False
         #捕获进程
-        PROCESS_ALL_ACCESS = (0x000F0000|0x00100000|0xFFF)
         if self.process == NULL:
-            print("Found an error, try to ignore it.")
+            self._set_status("未捕获到游戏进程")
             return
-        self.p = win32api.OpenProcess(PROCESS_ALL_ACCESS, False, self.process.pid)
-        self.md = ctypes.windll.LoadLibrary("C:\\Windows\\System32\\kernel32")
-        data = ctypes.c_int()
-        self.md.ReadProcessMemory(int(self.p), 0x40100E, ctypes.byref(data), 2, None)
-        #检查进程是不是曹操传
+        self._detach_process()
         ccz = False
-        if data.value == 0x774:
+        try:
+            module_base, module_size, exe_path = get_process_module(
+                self.process.pid)
+            process_path = self.process.exe()
+            if process_path and not os.path.samefile(process_path, exe_path):
+                raise MemoryAccessError("捕获窗口不属于目标进程主模块")
+            disk_image = PEImage(exe_path)
+            disk_identity = verify_engine_identity(exe_path)
             ccz = True
-        point = win32api.GetCursorPos()
-        hwnd = win32gui.WindowFromPoint(point)
-        clsname = win32gui.GetClassName(hwnd)
-        if clsname == "豪华曹操传":
-            ccz = True
+        except (MemoryAccessError, ProfileError, OSError) as exc:
+            ccz = False
+            self._set_status(str(exc))
         self.toolBar.setEnabled(ccz)
         self.widget_1.setEnabled(ccz)
         self.widget_2.setEnabled(ccz)
@@ -4777,34 +6420,19 @@ class Ui_MainWindow(object):
 
         #确定版本
         global version
-        if self.version_0.isChecked() == True:
-            version = 0
-        if self.version_1.isChecked() == True:
-            res = self.getFileVersion()
-            if res == '4':
-                version = 0
-                self.version_0.setChecked(True)
-            elif res == '3':
-                version = 2
-                self.version_2.setChecked(True)
-            elif res == '2':
-                version = 3
-                self.version_3.setChecked(True)
-            else:
-                version = 4
-                self.version_4.setChecked(True)
-        if self.version_2.isChecked() == True:
-            version = 2
-        if self.version_3.isChecked() == True:
-            version = 3
-        if self.version_4.isChecked() == True:
-            version = 4
-
-        if version == 2:
-            data = ctypes.c_int()
-            self.md.ReadProcessMemory(int(self.p), 0x41A8A0, ctypes.byref(data), 1, None)
-            if data.value == 0x55:
-                version = 1
+        try:
+            version_part = int(self.getFileVersion(exe_path))
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            if self.version_1.isChecked():
+                self._set_status("自动模式无法读取版本资源，请手动选择引擎版本: " +
+                                 str(exc))
+                self._detach_process()
+                self.toolBar.setEnabled(False)
+                self.widget_1.setEnabled(False)
+                self.widget_2.setEnabled(False)
+                return
+            version_part = None
+        version = self._resolve_engine_version(version_part)
 
         global addr_war
         global len_war
@@ -4817,60 +6445,94 @@ class Ui_MainWindow(object):
         global addr_zhuanshu
         global addr_bisha
         global condition_change
-        if version >= 1:
-            addr_war = 0x4B2C50
-            len_war = 0x24
-            cnt_wo = 16
-            cnt_you = 19
-            cnt_di = 80
-            cnt_item = 154
-            life = b'\xE0\x92\x40\x00'
-            addr_bisha = 0x508800
-        else:
-            addr_war = 0x4A7B20
-            len_war = 0x30
-            cnt_wo = 20
-            cnt_you = 40
-            cnt_di = 190
-            cnt_item = 255
-            life = b'\xC7\x92\x40\x00'
-            addr_bisha = 0x511800
-        if version >= 3:
-            addr_zhuanshu = 0x50E800
-        else:
-            addr_zhuanshu = 0x50E400 
-        if version == 4:
-            life = b'\x0F\x93\x40\x00'
-        if version == 0:
-            addr_tianfu = 0x508998
-        else:
-            addr_tianfu = 0x5089B0
-        if version == 0:
+        try:
+            self.memory_session = MemorySession.open_pid(
+                self.process.pid, module_base, module_size,
+                disk_image.image_base)
+            self.memory_session.error_handler = self._set_status
+            self.md = self.memory_session
+            self.p = self.memory_session.handle
+            runtime_image = RuntimeModuleImage(exe_path, self.memory_session)
+            runtime_identity = disk_identity
+            for attempt in range(20):
+                runtime_image.refresh()
+                runtime_identity = verify_engine_identity(
+                    exe_path, runtime_image)
+                if runtime_identity["runtime_anchor_found"]:
+                    break
+                if attempt < 19:
+                    time.sleep(0.1)
+            self.engine_profile = detect_composite_profile(
+                exe_path, version_part=version_part,
+                manual_hint=self._manual_engine_hint(), image=runtime_image)
+            self.engine_profile.metadata[
+                "identity_diagnostics"] = runtime_identity
+            version = int(self.engine_profile.version)
+            if version == 2 and self.memory_session.read_u8(0x41A8A0) == 0x55:
+                version = 1
+                self.engine_profile = legacy_profile(version)
+            profile = self.engine_profile
+            addr_war = profile.addresses["battle_units"]
+            len_war = profile.limits["battle_stride"]
+            cnt_wo = profile.limits["battle_ours"]
+            cnt_you = profile.limits["battle_friends"]
+            cnt_di = profile.limits["battle_enemies"]
+            # ``cnt_item`` is the physical metadata-domain count.  Expanded
+            # 6.5 has 255 records (0..254); equipment writes use the separate
+            # profile equipment domain below and must not truncate this list.
+            cnt_item = profile.limits["item_count"]
+            addr_tianfu = profile.addresses.get("effect_assign", 0)
+            addr_zhuanshu = profile.addresses["exclusive_set"]
+            addr_bisha = profile.addresses.get("fatal_table", 0)
+            profile.probe_runtime(self.memory_session)
+            addr_tianfu = profile.addresses.get("effect_assign", 0)
+            addr_bisha = profile.addresses.get("fatal_table", 0)
+            # The profile is authoritative.  Keep the historic global only
+            # for the no-profile compatibility path used by old callers.
+            try:
+                life = self.engine_profile.revive_entry_address().to_bytes(
+                    4, "little")
+            except (AttributeError, ProfileError, ValueError):
+                if version == 4:
+                    life = b'\x0F\x93\x40\x00'
+                elif version == EngineVersion.V66:
+                    life = (0x004092C0).to_bytes(4, "little")
+                elif version == EngineVersion.V65:
+                    life = (0x004092C7).to_bytes(4, "little")
+                else:
+                    life = (0x004092E0).to_bytes(4, "little")
+        except (ProfileError, MemoryAccessError) as exc:
+            self._set_status(str(exc))
+            self._detach_process()
+            self.toolBar.setEnabled(False)
+            self.widget_1.setEnabled(False)
+            self.widget_2.setEnabled(False)
+            return
+
+        effect_feature = self.engine_profile.resolved_feature("effect")
+        effect_layout = effect_feature.layout
+        self._set_effect_layout(
+            isinstance(effect_layout, TableLayoutSpec) and
+            effect_layout.codec == "effect-4+2-v1")
+        condition_change = version == EngineVersion.V66
+        if version in (EngineVersion.V64, EngineVersion.V65):
             data = ctypes.c_int()
             self.md.ReadProcessMemory(int(self.p), 0x4240CA, ctypes.byref(data), 1, None)
             if data.value == 0xFC:
                 condition_change = True
-                self.war_input_5.setVisible(False)
-                self.war_input_6.setVisible(False)
-                self.war_input_7.setVisible(False)
-                self.war_input_8.setVisible(False)
-                self.war_input_51.setVisible(True)
-                self.war_input_52.setVisible(True)
-                self.war_input_53.setVisible(True)
-                self.war_input_54.setVisible(True)
-            else:
-                self.war_input_5.setVisible(True)
-                self.war_input_6.setVisible(True)
-                self.war_input_7.setVisible(True)
-                self.war_input_8.setVisible(True)
-                self.war_input_51.setVisible(False)
-                self.war_input_52.setVisible(False)
-                self.war_input_53.setVisible(False)
-                self.war_input_54.setVisible(False)
+        self.war_input_5.setVisible(not condition_change)
+        self.war_input_6.setVisible(not condition_change)
+        self.war_input_7.setVisible(not condition_change)
+        self.war_input_8.setVisible(not condition_change)
+        self.war_input_51.setVisible(condition_change)
+        self.war_input_52.setVisible(condition_change)
+        self.war_input_53.setVisible(condition_change)
+        self.war_input_54.setVisible(condition_change)
+        self._set_status(self.engine_profile.summary())
 
         data = ctypes.c_int()
         self.md.ReadProcessMemory(int(self.p), 0x401007, ctypes.byref(data), 2, None)
-        if data.value == 0xF4E9:
+        if version != 6 and data.value == 0xF4E9:
             self.on_action_C_triggered()
             version = -1
         data = ctypes.c_int(0)
@@ -4925,14 +6587,26 @@ class Ui_MainWindow(object):
             self.checkBox_9.setChecked(False)
         else:
             self.checkBox_9.setChecked(True)
+        self._sync_66_patch_controls()
+        self._apply_capabilities()
 
         #读入data人物列表
         #读取角色列表
         self.listview_data.clear()
         self.war_input_1.clear()
-        self.power_input_1_1.clear()
-        self.power_input_1_2.clear()
-        self.power_input_1_3.clear()
+        power_person_inputs = [self.power_input_1_1,
+                               self.power_input_1_2,
+                               self.power_input_1_3]
+        power_job_inputs = [self.power_input_1_4]
+        current_effect_layout = self.engine_profile.resolved_feature(
+            "effect").layout
+        if (isinstance(current_effect_layout, TableLayoutSpec) and
+                current_effect_layout.codec == "effect-4+2-v1"):
+            power_person_inputs.append(self.power_input_1_4)
+            power_job_inputs = [self.power_input_1_9,
+                                self.power_input_1_11]
+        for control in power_person_inputs + power_job_inputs:
+            control.clear()
         self.power_input_2_1.clear()
         self.power_input_2_4.clear()
         self.mk_input_1_1.clear()
@@ -4940,23 +6614,18 @@ class Ui_MainWindow(object):
         self.mk_input_1_5.clear()
         self.mk_input_1_7.clear()
         self.mk_input_1_9.clear()
-        mem = ctypes.c_long()
+        mem = ctypes.c_uint32()
         name = ctypes.c_byte()
-        self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
-        for i in range(0,1024):
-            names=b""
-            for j in range(0,8):
-                self.md.ReadProcessMemory(int(self.p), mem.value+i*0x48+j+8, ctypes.byref(name), 1, None)
-                names+=name
-            try:
-                names=names.decode("gbk")
-            except:
-                names="非法字符"
+        mem.value = self.memory_session.read_u32(
+            self._profile_address("person_pointer", 0x004CEA00))
+        person_count = self.engine_profile.limits["person_count"]
+        person_stride = self.engine_profile.limits["person_stride"]
+        for i in range(0, person_count):
+            names = self._read_text(mem.value+i*person_stride+8, 8)
             self.listview_data.addItem(str(i)+":"+names)
             self.war_input_1.addItem(str(i)+":"+names)
-            self.power_input_1_1.addItem(str(i)+":"+names)
-            self.power_input_1_2.addItem(str(i)+":"+names)
-            self.power_input_1_3.addItem(str(i)+":"+names)
+            for control in power_person_inputs:
+                control.addItem(str(i)+":"+names)
             self.power_input_2_1.addItem(str(i)+":"+names)
             self.power_input_2_4.addItem(str(i)+":"+names)
             self.mk_input_1_1.addItem(str(i)+":"+names)
@@ -4964,9 +6633,8 @@ class Ui_MainWindow(object):
             self.mk_input_1_5.addItem(str(i)+":"+names)
             self.mk_input_1_7.addItem(str(i)+":"+names)
             self.mk_input_1_9.addItem(str(i)+":"+names)
-        self.power_input_1_1.addItem("空")
-        self.power_input_1_2.addItem("空")
-        self.power_input_1_3.addItem("空")
+        for control in power_person_inputs:
+            control.addItem("空")
         self.power_input_2_1.addItem("空")
         self.power_input_2_4.addItem("空")
         self.mk_input_1_1.addItem("空")
@@ -4977,19 +6645,21 @@ class Ui_MainWindow(object):
 
         #读取兵种名称
         self.data_input_31.clear()
-        self.power_input_1_4.clear()
+        job_names = self._profile_address("job_names", 0x005000D0)
         for i in range(0,80):
             names=b""
             for j in range(0,9):
-                self.md.ReadProcessMemory(int(self.p), 0x5000D0+i*0x9+j, ctypes.byref(name), 1, None)
+                self.md.ReadProcessMemory(int(self.p), job_names+i*0x9+j, ctypes.byref(name), 1, None)
                 names+=name
             try:
                 names=names.decode("gbk")
             except:
                 names="非法字符"
             self.data_input_31.addItem(str(i)+":"+names)
-            self.power_input_1_4.addItem(str(i)+":"+names)
-        self.power_input_1_4.addItem("空")
+            for control in power_job_inputs:
+                control.addItem(str(i)+":"+names)
+        for control in power_job_inputs:
+            control.addItem("空")
         #读取宝物名称
         self.data_input_32.clear()
         self.data_input_35.clear()
@@ -5003,17 +6673,25 @@ class Ui_MainWindow(object):
         self.power_input_3_5.clear()
         self.power_input_3_6.clear()
         self.power_input_3_7.clear()
+        item_name_size = self.engine_profile.limits.get("item_name_size", 12)
+        item_runtime_table = self.engine_profile.addresses.get("item_table", 0)
+        item_table_66 = None
+        if version in (EngineVersion.V65, EngineVersion.V66):
+            try:
+                item_table_66 = self.engine_profile.item_table_66()
+            except ProfileError:
+                pass
         for i in range(0,cnt_item):
             '''if i >=87 and i <= 129:
                 continue'''
-            names=b""
-            for j in range(0,12):
-                self.md.ReadProcessMemory(int(self.p), 0x4A1140+i*25+j, ctypes.byref(name), 1, None)
-                names+=name
-            try:
-                names=names.decode("gbk")
-            except:
-                names="非法字符"
+            if item_table_66 is not None:
+                names = self.engine_profile.item_row(i).name
+            elif item_runtime_table > 0:
+                names = self._read_text(
+                    item_runtime_table + i * 25,
+                    item_name_size)
+            else:
+                names = "物品%d" % i
             self.data_input_32.addItem(str(i)+":"+names)
             self.data_input_35.addItem(str(i)+":"+names)
             self.data_input_38.addItem(str(i)+":"+names)
@@ -5040,12 +6718,43 @@ class Ui_MainWindow(object):
         self.power_input_3_7.addItem("空")
 
         self.listview_item.clear()
-        for i in range(0,256):
+        for i in range(0,200):
             self.listview_item.addItem("空")
 
         #读取消耗品名称
         self.listview_item_2.clear()
-        if version >= 1:
+        consumable_mapping = self._consumable_mapping()
+        if consumable_mapping is not None:
+            self.listview_item_2.setEnabled(True)
+            self.item_input_4.setEnabled(
+                self._feature_writable("item_consumables"))
+            for item_id in self._consumable_ids():
+                if version == EngineVersion.V66:
+                    if item_table_66 is None:
+                        item_name = "名称不可用"
+                    else:
+                        item_name = self.engine_profile.item_row(item_id).name
+                elif item_table_66 is not None:
+                    item_name = self.engine_profile.item_row(item_id).name
+                elif item_runtime_table > 0:
+                    item_name = self._read_text(
+                        item_runtime_table + item_id * 25, item_name_size)
+                else:
+                    item_name = "物品%d" % item_id
+                self.listview_item_2.addItem("%d:%s" % (item_id, item_name))
+        elif version in (EngineVersion.V64, EngineVersion.V65,
+                          EngineVersion.V66):
+            resolved = self.engine_profile.resolved_feature("item_consumables")
+            self.listview_item_2.addItem("消耗品映射未验证")
+            self.listview_item_2.setToolTip(
+                resolved.reason or
+                self.engine_profile.capability("item_consumables").reason)
+            self.listview_item_2.setEnabled(False)
+            self.item_input_4.setEnabled(False)
+        elif version in (EngineVersion.V63_MP, EngineVersion.V63,
+                         EngineVersion.V62, EngineVersion.V61):
+            self.listview_item_2.setEnabled(True)
+            self.item_input_4.setEnabled(True)
             for i in range(0,43):
                 names=b""
                 for j in range(0,12):
@@ -5057,23 +6766,48 @@ class Ui_MainWindow(object):
                     print(names)
                     names="非法字符"
                 self.listview_item_2.addItem(names)
-        else:
-            for i in range(0,105):
-                names=b""
-                for j in range(0,12):
-                    self.md.ReadProcessMemory(int(self.p), 0x4A1FE6+i*25+j, ctypes.byref(name), 1, None)
-                    names+=name
-                try:
-                    names=names.decode("gbk")
-                except:
-                    print(names)
-                    names="非法字符"
-                self.listview_item_2.addItem(names)
-
         #读取天赋/必杀
         self.listview_item_3.clear()
         self.listview_mk.clear()
-        if version == 0:
+        if version in (EngineVersion.V65, EngineVersion.V66):
+            try:
+                self._populate_profile_effect_names()
+            except ProfileError as exc:
+                self._set_status(
+                    "读取%s特效名称失败: %s" %
+                    (self.engine_profile.display_version, exc))
+                self.item_save_2.setEnabled(False)
+            if version == EngineVersion.V66:
+                data_file = Path(exe_path).with_name("Data.e5")
+                try:
+                    with data_file.open("rb") as stream:
+                        stream.seek(59540)
+                        fatal_rows = stream.read(80 * 16)
+                    if len(fatal_rows) != 80 * 16:
+                        raise OSError("必杀名称表长度不足")
+                    for i in range(0,80):
+                        raw = fatal_rows[i*16:i*16+11].split(b"\0", 1)[0]
+                        try:
+                            names = raw.decode("gbk")
+                        except UnicodeDecodeError:
+                            names = "非法字符"
+                        self.listview_mk.addItem(str(i)+":"+names)
+                except OSError as exc:
+                    self._set_status("读取6.6必杀名称失败: " + str(exc))
+                    self.item_save_4.setEnabled(False)
+            else:
+                for i in range(0,80):
+                    names=b""
+                    for j in range(0,11):
+                        self.md.ReadProcessMemory(int(self.p), 0x4A7510+i*16+j, ctypes.byref(name), 1, None)
+                        names+=name
+                    try:
+                        names=names.decode("gbk")
+                    except:
+                        print(names)
+                        names="非法字符"
+                    self.listview_mk.addItem(str(i)+":"+names)
+        elif version == EngineVersion.V64:
             for i in range(0,180):
                 names=b""
                 for j in range(0,15):
@@ -5096,7 +6830,7 @@ class Ui_MainWindow(object):
                     print(names)
                     names="非法字符"
                 self.listview_mk.addItem(str(i)+":"+names)
-        elif version <= 2:
+        elif version in (-1, EngineVersion.V63_MP, EngineVersion.V63):
             for i in range(0,144):
                 names=b""
                 for j in range(0,15):
@@ -5179,6 +6913,8 @@ class Ui_MainWindow(object):
         lock_list.clear()
         lock_hp.clear()
         lock_mp.clear()
+        lock_ids.clear()
+        self._auto_revive_attempts.clear()
         self.listview_war_2.clear()
         self.listview_item.setCurrentRow(0)
         self.listview_item_2.setCurrentRow(0)
@@ -5192,11 +6928,8 @@ class Ui_MainWindow(object):
         self.DIY_Page(0)
         self.diy_input_4.setCurrentIndex(0)
 
-        #开启多线程
-        if self.my_thread == NULL:
-            self.my_thread = threading.Thread(target=self.LockThread)
-            self.my_thread.setDaemon(True)
-            self.my_thread.start()
+        #锁血、锁蓝和自动复活在 UI 线程定时执行。
+        self.lock_timer.start()
 
     def mouseMoveEvent(self, event):
         if self.mouse_capture == True:
@@ -5221,14 +6954,75 @@ class Ui_MainWindow(object):
                     self.DIY_Page(1)
 
     def recal(self):
+        if (self._detaching or self.memory_session is None or
+                self.engine_profile is None):
+            self._set_status("尚未附加游戏进程")
+            return
+        if not self._feature_enabled("recalculate"):
+            self._set_status(
+                self.engine_profile.capability("recalculate").reason or
+                "人物能力重算当前不可用")
+            return
         if len(self.listview_data.selectedIndexes())<=0:
             return
         n = self.listview_data.selectedIndexes()[0].row()
-        mem = ctypes.c_long()
-        self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
-        hk = my_hook()
-        hk.recal(self.p, mem.value+0x48*n)
-        del hk
+        if not 0 <= n < self.engine_profile.limits["person_count"]:
+            self._set_status("人物编号越界")
+            return
+        person_pointer = self._profile_address("person_pointer", 0x004CEA00)
+        merit_address = self._profile_address(
+            "merit", 0x00508000 if version in (0, 5, 6) else 0x00508400)
+        call_completed = False
+        try:
+            person_base = self.memory_session.read_u32(person_pointer)
+            snapshot = self._person_snapshot
+            if (snapshot is not None and snapshot.person_id == n and
+                    person_base != snapshot.person_base):
+                raise MemoryAccessError("人物数组指针已变化，请刷新后重试")
+            record_address = person_base + self.engine_profile.limits[
+                "person_stride"] * n
+            if not self.memory_session.validate_actual_range(
+                    record_address, 0x48, write=True):
+                raise MemoryAccessError("人物记录范围无效")
+            spec = self.engine_profile.remote_calls.get("recalculate")
+            if spec is None or spec.wrapper_kind != "recalculate-person-v1":
+                raise ProfileError("人物能力重算缺少已验证调用配方")
+            if spec.signature and self.memory_session.read_bytes(
+                    spec.address, len(spec.signature)) != spec.signature:
+                raise ProfileError("人物能力重算入口运行时签名已变化")
+            before = self.memory_session.read_actual_bytes(record_address, 0x48)
+            merit_before = (self.memory_session.read_bytes(
+                merit_address + n * 10, 10)
+                if n < self.engine_profile.limits["merit_count"] else b"")
+            hk = my_hook(self.memory_session, self.engine_profile)
+            hk.recal(self.memory_session, record_address)
+            call_completed = True
+            after = self.memory_session.read_actual_bytes(record_address, 0x48)
+            invariant_ranges = (
+                (0x1B, 0x21, "HP/MP"),
+                (0x21, 0x26, "基础五维"),
+                (0x2B, 0x2C, "兵种"),
+                (0x2C, 0x2D, "等级"),
+            )
+            changed = [label for start, end, label in invariant_ranges
+                       if before[start:end] != after[start:end]]
+            if merit_before and self.memory_session.read_bytes(
+                    merit_address + n * 10, 10) != merit_before:
+                changed.append("功勋")
+            if (before[0x2D] != after[0x2D] and
+                    not (before[0x2C] >= 60 and after[0x2D] == 0xFF)):
+                changed.append("经验")
+            if changed:
+                raise ProfileError(
+                    "人物能力重算意外修改了%s" % "、".join(changed))
+        except (HookError, MemoryAccessError, ProfileError) as exc:
+            self._set_status(str(exc))
+        finally:
+            if call_completed:
+                try:
+                    self.onData()
+                except MemoryAccessError as exc:
+                    self._set_status("重算后刷新人物失败: %s" % exc)
 
     def refreshFangzhen(self):
         global addr_war
@@ -5243,22 +7037,17 @@ class Ui_MainWindow(object):
             data2 = ctypes.c_int()
             data = ctypes.c_int()
             name = ctypes.c_byte()
-            mem = ctypes.c_int()
-            self.md.ReadProcessMemory(int(self.p), 0x4CEA00, ctypes.byref(mem), 4, None)
+            mem = ctypes.c_uint32()
+            mem.value = self.memory_session.read_u32(
+                self._profile_address("person_pointer", 0x004CEA00))
             for i in range(0,cnt_wo + cnt_you + cnt_di):
                 self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war, ctypes.byref(data), 2, None)
                 if data.value!=65535:
                     self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war + 5, ctypes.byref(data2), 1, None)
-                    names=b""
-                    for j in range(0,8):
-                        self.md.ReadProcessMemory(int(self.p), mem.value+data.value*0x48+j+8, ctypes.byref(name), 1, None)
-                        names+=name
-                    try:
-                        names=names.decode("gbk")
-                    except:
-                        names="非法字符"
+                    names = self._read_text(
+                        mem.value+data.value*0x48+8, 8)
                     self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war+4, ctypes.byref(data2), 1, None)
-                    self.war_input_12.addItem(str(data2.value)+":"+names)
+                    self.war_input_12.addItem(str(data2.value)+":"+names, i)
                 self.war_input_12.setCurrentIndex(0)
         else:
             self.war_12.hide()
@@ -5271,13 +7060,9 @@ class Ui_MainWindow(object):
         global cnt_you
         global cnt_di
         data = ctypes.c_int()
-        war_code = 0
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            return
         self.md.ReadProcessMemory(int(self.p), addr_war + len_war*war_code, ctypes.byref(data), 2, None)
         self.listview_data.setCurrentRow(data.value)
         self.on_action_M_triggered()
@@ -5307,28 +7092,71 @@ class Ui_MainWindow(object):
         global cnt_you
         global cnt_di
         global life
-        data = ctypes.c_int()
-        war_code = 0
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
-        if self.war_input_16.currentIndex() == 0:
-            self.md.ReadProcessMemory(int(self.p), addr_war + len_war*war_code+0xF, ctypes.byref(data), 1, None)
-            dir = data.value
-        else:
-            dir = self.war_input_16.currentIndex() - 1
-        x = int(self.war_input_9.toPlainText())
-        y = int(self.war_input_10.toPlainText())
-        self.md.ReadProcessMemory(int(self.p), addr_war + len_war*war_code, ctypes.byref(data), 2, None)
-        hk = my_hook()
-        hk.life(self.p, dir, x, y, data.value, life)
-        self.war_life.setEnabled(False)
-        self.war_life.setStyleSheet("background-color:rgb(255, 255, 255);\ncolor:rgb(190,190,190)")
-        self.onWar(1)
-        del hk
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            self._set_status("请先选择战场单位")
+            return
+        if self.memory_session is None or self.engine_profile is None:
+            self._set_status("尚未附加可写游戏进程")
+            return
+        total_slots = cnt_wo + cnt_you + cnt_di
+        if not 0 <= war_code < total_slots:
+            self._set_status("战场槽位越界: %d/%d" % (war_code, total_slots))
+            return
+        unit = addr_war + len_war * war_code
+        try:
+            if not self.memory_session.validate_range(unit, len_war,
+                                                      write=False):
+                raise MemoryAccessError("战场槽位地址不可读: 0x%08X" % unit)
+            data_id = self.memory_session.read_u16(unit)
+            hp_before = self.memory_session.read_u32(unit + 0x10)
+            view_before = self.memory_session.read_u8(unit + 0x0C)
+            if data_id == 0xFFFF:
+                raise ValueError("当前槽位为空，不能复活")
+            if hp_before != 0 or view_before != 3:
+                raise ValueError("目标不是死亡状态(HP=%d, 显示状态=%d)" %
+                                 (hp_before, view_before))
+            if self.war_input_16.currentIndex() == 0:
+                direction = self.memory_session.read_u8(unit + 0x0F)
+            else:
+                direction = self.war_input_16.currentIndex() - 1
+            x = int(self.war_input_9.toPlainText().strip())
+            y = int(self.war_input_10.toPlainText().strip())
+            if not 0 <= direction <= 3:
+                raise ValueError("复活方向必须在 0..3 范围内")
+            if not 0 <= x <= 0xFF or not 0 <= y <= 0xFF:
+                raise ValueError("复活坐标必须在 0..255 范围内")
+            entry = self.engine_profile.revive_entry_address()
+            before = (data_id, hp_before, view_before,
+                      self.memory_session.read_u8(unit + 0x06),
+                      self.memory_session.read_u8(unit + 0x07))
+        except (MemoryAccessError, ProfileError, ValueError, TypeError) as exc:
+            self._set_status("复活前检查失败: 槽位=%d，%s" % (war_code, exc))
+            return
+        try:
+            hk = my_hook(self.memory_session, self.engine_profile)
+            hk.life(self.memory_session, direction, x, y, data_id, life)
+            data_after = self.memory_session.read_u16(unit)
+            hp_after = self.memory_session.read_u32(unit + 0x10)
+            view_after = self.memory_session.read_u8(unit + 0x0C)
+            if data_after != data_id:
+                raise HookError(
+                    "复活后 Data ID 变化: 0x%04X -> 0x%04X" %
+                    (data_id, data_after))
+            if hp_after == 0 and view_after == 3:
+                raise HookError("远程调用完成但槽位仍为死亡状态")
+            self.war_life.setEnabled(False)
+            self.war_life.setStyleSheet("background-color:rgb(255, 255, 255);\ncolor:rgb(190,190,190)")
+            self.onWar(1)
+            self._set_status(
+                "复活成功：版本=%s 入口=0x%08X 槽位=%d Data ID=%d 参数=(%d,%d,%d)" %
+                (self.engine_profile.display_version, entry, war_code,
+                 data_id, direction, x, y))
+        except (HookError, MemoryAccessError, ProfileError, ValueError) as exc:
+            self._set_status(
+                "复活失败：版本=%s 入口=0x%08X 槽位=%d Data ID=%d 参数=(%d,%d,%d)：%s" %
+                (self.engine_profile.display_version, entry, war_code,
+                 before[0], direction, x, y, exc))
 
     def onLock(self):
         global addr_war
@@ -5336,24 +7164,26 @@ class Ui_MainWindow(object):
         global cnt_wo
         global cnt_you
         global cnt_di
+        global lock_ids
         if self.listview_war.currentRow() == -1:
             return
-        war_code = 0
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            return
+        if war_code in lock_list:
+            return
         self.listview_war_2.addItem(self.listview_war.item(self.listview_war.currentRow()).text())
         lock_list.append(war_code)
         data = ctypes.c_int()
+        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war,
+                                  ctypes.byref(data), 2, None)
+        lock_ids.append(data.value)
         #HPCur
-        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x10, ctypes.byref(data), 4, None)
-        lock_hp.append(data.value)
+        lock_hp.append(self.memory_session.read_u32(
+            addr_war+war_code*len_war+0x10))
         #MPCur
-        self.md.ReadProcessMemory(int(self.p), addr_war+war_code*len_war+0x14, ctypes.byref(data), 4, None)
-        lock_mp.append(data.value)
+        lock_mp.append(self.memory_session.read_u32(
+            addr_war+war_code*len_war+0x14))
 
     def offLock(self):
         if self.listview_war_2.currentRow() == -1:
@@ -5361,6 +7191,7 @@ class Ui_MainWindow(object):
         del lock_list[self.listview_war_2.currentRow()]
         del lock_hp[self.listview_war_2.currentRow()]
         del lock_mp[self.listview_war_2.currentRow()]
+        del lock_ids[self.listview_war_2.currentRow()]
         self.listview_war_2.takeItem(self.listview_war_2.currentRow())
 
     def LockThread(self):
@@ -5373,61 +7204,106 @@ class Ui_MainWindow(object):
         global lock_list
         global lock_hp
         global lock_mp
-        
-        while True:
-            pl = psutil.pids()
-            ccz = False
-            for pid in pl:
-                if pid == self.process_id:
-                    ccz = True
-                    break
-            if ccz == False:
-                self.toolBar.setEnabled(ccz)
-                self.widget_1.setEnabled(ccz)
-                self.widget_2.setEnabled(ccz)
-                self.ok = ccz
-                self.widget_1.show()
-                self.widget_2.hide()
-                self.widget_3.hide()
-                self.widget_4.hide()
-                self.widget_5.hide()
-                self.widget_6.hide()
-                self.widget_7.hide()
-                self.widget_8.hide()
+        global lock_ids
+        global auto_life
+
+        if not self.ok or self.memory_session is None:
+            return
+        if not psutil.pid_exists(self.process_id):
+            self._detach_process()
+            self.toolBar.setEnabled(False)
+            self.widget_1.setEnabled(False)
+            self.widget_2.setEnabled(False)
+            self.widget_1.show()
+            for widget in (self.widget_2, self.widget_3, self.widget_4,
+                           self.widget_5, self.widget_6, self.widget_7,
+                           self.widget_8):
+                widget.hide()
+            self._set_status("游戏进程已退出")
+            return
+
+        if auto_life:
+            try:
+                now = time.monotonic()
+                attempts = getattr(self, "_auto_revive_attempts", {})
+                self._auto_revive_attempts = attempts
+                for key, submitted_at in tuple(attempts.items()):
+                    if now - submitted_at > 2.0:
+                        attempts.pop(key, None)
+                helper = my_hook(self.memory_session, self.engine_profile)
+                entry = self.engine_profile.revive_entry_address()
+                for i in range(0,cnt_wo):
+                    unit = addr_war+i*len_war
+                    code = self.memory_session.read_u16(unit)
+                    hp = self.memory_session.read_u32(unit+0x10)
+                    view = self.memory_session.read_u8(unit+0x0C)
+                    for old_key in tuple(attempts):
+                        if old_key[0] == i and old_key[1] != code:
+                            attempts.pop(old_key, None)
+                    if hp != 0 or code == 0xFFFF or view != 3:
+                        attempts.pop((i, code), None)
+                        continue
+                    if hp == 0 and code != 0xFFFF and view == 3:
+                        dedup_key = (i, code)
+                        if dedup_key in attempts:
+                            continue
+                        direction = self.memory_session.read_u8(unit+0x0F)
+                        x = self.memory_session.read_u8(unit+0x06)
+                        y = self.memory_session.read_u8(unit+0x07)
+                        attempts[dedup_key] = now
+                        helper.life(
+                            self.memory_session, direction, x, y, code, life)
+                        code_after = self.memory_session.read_u16(unit)
+                        hp_after = self.memory_session.read_u32(unit+0x10)
+                        view_after = self.memory_session.read_u8(unit+0x0C)
+                        if code_after != code:
+                            raise HookError(
+                                "自动复活复读 Data ID 变化: 槽位=%d, "
+                                "0x%04X->0x%04X" %
+                                (i, code, code_after))
+                        if hp_after == 0 and view_after == 3:
+                            raise HookError(
+                                "自动复活远程调用完成但目标仍为死亡状态: "
+                                "槽位=%d, Data ID=%d" % (i, code))
+                        attempts.pop(dedup_key, None)
+                        self._set_status(
+                            "自动复活成功：版本=%s 入口=0x%08X "
+                            "槽位=%d Data ID=%d 参数=(%d,%d,%d)" %
+                            (self.engine_profile.display_version, entry, i,
+                             code, direction, x, y))
+            except (MemoryAccessError, HookError, ProfileError, ValueError) as exc:
+                auto_life = False
+                self.checkBox_9.setChecked(False)
+                self._set_status("自动复活已停止：%s" % exc)
+
+        if not (len(lock_list) == len(lock_hp) == len(lock_mp) == len(lock_ids)):
+            lock_list.clear()
+            lock_hp.clear()
+            lock_mp.clear()
+            lock_ids.clear()
+            self.listview_war_2.clear()
+            return
+        for index in range(len(lock_list)-1, -1, -1):
+            slot = lock_list[index]
+            unit = addr_war+slot*len_war
+            try:
+                if self.memory_session.read_u16(unit) != lock_ids[index]:
+                    del lock_list[index]
+                    del lock_hp[index]
+                    del lock_mp[index]
+                    del lock_ids[index]
+                    self.listview_war_2.takeItem(index)
+                    continue
+                self.memory_session.write_u32(unit+0x10, lock_hp[index])
+                self.memory_session.write_u32(unit+0x14, lock_mp[index])
+            except MemoryAccessError as exc:
+                self._set_status(str(exc))
                 return
 
-            if auto_life == True:
-                for i in range(0,cnt_wo):
-                    code = ctypes.c_int(0)
-                    hp = ctypes.c_int(0)
-                    view = ctypes.c_int(0)
-                    self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war, ctypes.byref(code), 4, None)
-                    self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war+0x10, ctypes.byref(hp), 4, None)
-                    self.md.ReadProcessMemory(int(self.p), addr_war+i*len_war+0xC, ctypes.byref(view), 1, None)
-                    if hp.value == 0 and code.value!=0xFFFF and view.value == 3:
-                        dir = ctypes.c_int(0)
-                        x = ctypes.c_int(0)
-                        y = ctypes.c_int(0)
-                        self.md.ReadProcessMemory(int(self.p), addr_war + len_war*i+0xF, ctypes.byref(dir), 1, None)
-                        self.md.ReadProcessMemory(int(self.p), addr_war + len_war*i+6, ctypes.byref(x), 1, None)
-                        self.md.ReadProcessMemory(int(self.p), addr_war + len_war*i+7, ctypes.byref(y), 1, None)
-                        hk = my_hook()
-                        hk.life(self.p, dir.value, x.value, y.value, code.value, life)
-
-            if len(lock_list)!=len(lock_hp) or len(lock_list)!=len(lock_mp):
-                continue
-            for i in range(0,len(lock_list)):
-                #HPCur
-                data = ctypes.c_int(lock_hp[i])
-                self.md.WriteProcessMemory(int(self.p), addr_war+lock_list[i]*len_war+0x10, ctypes.byref(data), 4, None)
-                #MPCur
-                data = ctypes.c_int(lock_mp[i])
-                self.md.WriteProcessMemory(int(self.p), addr_war+lock_list[i]*len_war+0x14, ctypes.byref(data), 4, None)
-            time.sleep(1)
-
-    def getFileVersion(self):
+    def getFileVersion(self, exe_path=None):
         import os
-        info = win32api.GetFileVersionInfo(self.process.exe(), os.sep)
+        info = win32api.GetFileVersionInfo(
+            exe_path or self.process.exe(), os.sep)
         ms = info['FileVersionMS']
         ls = info['FileVersionLS']
         version = '%d' % (win32api.LOWORD(ls))
@@ -5442,55 +7318,120 @@ class Ui_MainWindow(object):
         if self.war_input_16.currentIndex() <=0:
             return
         data = ctypes.c_int()
-        war_code = 0
-        if self.war_kind_1.isChecked() == True:
-            war_code = self.listview_war.currentRow()
-        if self.war_kind_2.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo
-        if self.war_kind_3.isChecked() == True:
-            war_code = self.listview_war.currentRow() + cnt_wo + cnt_you
+        war_code = self._selected_war_slot()
+        if war_code < 0:
+            return
         self.md.ReadProcessMemory(int(self.p), addr_war + len_war*war_code, ctypes.byref(data), 2, None)
 
-        hk = my_hook()
-        hk.changeDir(self.p, self.war_input_16.currentIndex()-1, data.value)
-        self.onWar(1)
-        del hk
+        if version == 6 and not self._feature_enabled("turn_refresh_direction"):
+            direction = self.war_input_16.currentIndex()-1
+            self.memory_session.write_u8(addr_war + len_war*war_code + 0x0F,
+                                         direction)
+            self._set_status(self.engine_profile.capability(
+                "turn_refresh_direction").reason + "；已仅保存方向字段")
+            self.onWar(1)
+            return
+        try:
+            hk = my_hook(self.memory_session, self.engine_profile)
+            hk.changeDir(self.memory_session,
+                         self.war_input_16.currentIndex()-1, data.value)
+            self.onWar(1)
+        except HookError as exc:
+            self._set_status(str(exc))
 
     def allItem(self, n):
         global cnt_item
+        warehouse = self._profile_address("warehouse", 0x004B0783)
+        item_table_address = self._profile_address("item_table", 0x004A1140)
+        if (n in (2, 3) and version in
+                (EngineVersion.V64, EngineVersion.V65, EngineVersion.V66)):
+            if not self._feature_writable("item_consumables"):
+                self._set_status(self.engine_profile.resolved_feature(
+                    "item_consumables").reason or "消耗品计数当前不可写")
+                return
+            if n == 3 and not self._feature_writable("warehouse"):
+                self._set_status("清空需要仓库与消耗品同时可写")
+                return
+            entries = []
+            if n == 3:
+                entries.extend((warehouse + slot * 3, b"\xFF")
+                               for slot in range(0, 200))
+            value = 255 if n == 2 else 0
+            entries.extend(self._consumable_entry(item_id, value)
+                           for item_id in self._consumable_ids())
+            try:
+                self.memory_session.write_transaction(entries)
+                self.onItem()
+            except (MemoryAccessError, ValueError) as exc:
+                self._set_status(str(exc))
+            return
+        if version in (EngineVersion.V65, EngineVersion.V66):
+            try:
+                level = min(self._parse_uint(self.item_input_2, 8, "宝物等级"), 9)
+                experience = self._parse_uint(self.item_input_3, 8, "宝物经验")
+            except (ValueError, TypeError) as exc:
+                self._set_status(str(exc))
+                return
+            try:
+                item_table = self.engine_profile.item_table_66()
+            except ProfileError as exc:
+                self._set_status(str(exc))
+                return
+            treasures = treasure_ids_66(
+                item_table, self.engine_profile.limits["equipment_count"],
+                str(self.engine_profile.metadata.get(
+                    "item_row_codec", "item-66-15-v1")))
+            empty_slots = [slot for slot in range(0, 200)
+                           if self.memory_session.read_u8(
+                               warehouse + slot * 3) == 255]
+            for slot, item_id in zip(empty_slots, treasures):
+                address = warehouse + slot * 3
+                self.memory_session.write_u8(address, item_id)
+                self.memory_session.write_u8(address + 1, level)
+                item_experience = 250 if experience == 255 and level != 9 else experience
+                self.memory_session.write_u8(address + 2, item_experience)
+            if len(treasures) > len(empty_slots):
+                self._set_status("仓库已满，剩余 %d 件宝物未写入" %
+                                 (len(treasures) - len(empty_slots)))
+            self.onItem()
+            return
         if n == 1:
             a = 0
             i = 0
             while True:
+                if i >= 200:
+                    self._set_status("仓库已满，批量写入已停止")
+                    break
                 data = ctypes.c_int()
-                self.md.ReadProcessMemory(int(self.p), 0x4B0783 + i * 3, ctypes.byref(data), 1, None)
+                self.md.ReadProcessMemory(int(self.p), warehouse + i * 3, ctypes.byref(data), 1, None)
                 if data.value != 255:
                     i += 1
                     continue
-                if version >= 1:
+                if version in (EngineVersion.V63_MP, EngineVersion.V63,
+                                EngineVersion.V62, EngineVersion.V61):
                     if a == 87:
                         a = 130
                     if a == cnt_item:
                         break
                 else:
-                    if a == 150:
+                    if a == cnt_item:
                         break
 
                 data = ctypes.c_int()
-                self.md.ReadProcessMemory(int(self.p), 0x4A1140+a*25+0x14, ctypes.byref(data), 1, None)
+                self.md.ReadProcessMemory(int(self.p), item_table_address+a*25+0x14, ctypes.byref(data), 1, None)
                 if data.value == 255:
                     a += 1
                     continue
                 data = ctypes.c_int(a)
-                self.md.WriteProcessMemory(int(self.p), 0x4B0783 + i * 3, ctypes.byref(data), 1, None)
+                self.md.WriteProcessMemory(int(self.p), warehouse + i * 3, ctypes.byref(data), 1, None)
                 data = ctypes.c_int(int(self.item_input_2.toPlainText()))
                 if data.value > 9:
                     data.value = 9
-                self.md.WriteProcessMemory(int(self.p), 0x4B0783 + i * 3 + 1, ctypes.byref(data), 1, None)
+                self.md.WriteProcessMemory(int(self.p), warehouse + i * 3 + 1, ctypes.byref(data), 1, None)
                 data2 = ctypes.c_int(int(self.item_input_3.toPlainText()))
                 if data2.value == 255 and data.value != 9:
                     data2.value = 250
-                self.md.WriteProcessMemory(int(self.p), 0x4B0783 + i * 3 + 2, ctypes.byref(data2), 1, None)
+                self.md.WriteProcessMemory(int(self.p), warehouse + i * 3 + 2, ctypes.byref(data2), 1, None)
                 a += 1
         if n == 2:
             if version >= 1:
@@ -5505,9 +7446,9 @@ class Ui_MainWindow(object):
                     data = ctypes.c_int(255)
                     self.md.WriteProcessMemory(int(self.p), 0x510c80 + i, ctypes.byref(data), 1, None)
         if n == 3:
-            for i in range(0,256):
+            for i in range(0,200):
                 data = ctypes.c_int(255)
-                self.md.WriteProcessMemory(int(self.p), 0x4B0783 + i * 3, ctypes.byref(data), 1, None)
+                self.md.WriteProcessMemory(int(self.p), warehouse + i * 3, ctypes.byref(data), 1, None)
             if version >= 1:
                 for i in range(0,43):
                     data = ctypes.c_int(0)
@@ -5522,30 +7463,37 @@ class Ui_MainWindow(object):
         self.onItem()
 
     def DIY_Page(self, n):
+        if self._detaching or self.memory_session is None or self.engine_profile is None:
+            return
         global cnt_item
         while self.listview_diy.rowCount() != 0:
             self.listview_diy.removeRow(0)
-        dirname = "DIY.csv"
+        dirname = self.base_dir / "DIY.csv"
         try:
-            with open(dirname) as csvfile:
+            with open(dirname, encoding="utf-8-sig", newline="") as csvfile:
                 a = 1
-        except:
+        except OSError:
             return
         #初始化
         if n == 0:
             self.diy_input_4.clear()
-            with open(dirname) as csvfile:
+            with open(dirname, encoding="utf-8-sig", newline="") as csvfile:
                 csv_reader = csv.reader(csvfile)
                 for row in csv_reader:
+                    if len(row) < 6:
+                        continue
                     if row[0] != '' and row[1] == '' and row[2] == '' and row[3] == '' and row[4] == '' and row[5] == '':
                         self.diy_input_4.addItem(row[0])
             return
         #显示数据
-        with open(dirname) as csvfile:
+        with open(dirname, encoding="utf-8-sig", newline="") as csvfile:
             csv_reader = csv.reader(csvfile)
             table = -1
             a = 0
             for row in csv_reader:
+                if len(row) < 6:
+                    self._set_status("DIY.csv 存在不足六列的记录")
+                    continue
                 if table != self.diy_input_4.currentIndex():
                     if row[0] != '' and row[1] == '' and row[2] == '' and row[3] == '' and row[4] == '' and row[5] == '':
                         table += 1
@@ -5554,29 +7502,45 @@ class Ui_MainWindow(object):
                     continue
                 if row[0] != '' and row[1] == '' and row[2] == '' and row[3] == '' and row[4] == '' and row[5] == '':
                     break
-                xunhuan = int(row[4])
+                try:
+                    xunhuan = int(row[4])
+                    width = int(row[3], 10)
+                    base_address = int(row[2], 16)
+                except ValueError:
+                    self._set_status("DIY.csv 存在无效地址、宽度或循环次数")
+                    continue
+                if width not in (1, 2, 4):
+                    self._set_status("DIY.csv 中的字段宽度只能是 1、2 或 4")
+                    continue
                 for i in range(0,xunhuan):
                     '''if (int(row[2],16) >= 0x492FC8 and int(row[2],16) < 0x496FC8) or\
                         (int(row[2],16) >= 0x502000 and int(row[2],16) < 0x50A000):
                         continue'''
+                    address = base_address+i*width
+                    if not self.memory_session.validate_range(address, width, write=False):
+                        self._set_status("DIY.csv 地址 0x%X 不可读" % address)
+                        continue
                     self.listview_diy.insertRow(a)
                     if xunhuan == 1:
                         self.listview_diy.setItem(a,0,QtWidgets.QTableWidgetItem(row[0]))
                     else:
                         self.listview_diy.setItem(a,0,QtWidgets.QTableWidgetItem(row[0]+"_"+str(i)))
-                    self.listview_diy.setItem(a,3,QtWidgets.QTableWidgetItem('{:X}'.format(int(row[2],16)+i*int(row[3]),16)))
-                    self.listview_diy.setItem(a,4,QtWidgets.QTableWidgetItem(row[3]))
+                    self.listview_diy.setItem(a,3,QtWidgets.QTableWidgetItem('{:X}'.format(address,16)))
+                    self.listview_diy.setItem(a,4,QtWidgets.QTableWidgetItem(str(width)))
                     self.listview_diy.setItem(a,5,QtWidgets.QTableWidgetItem(row[5]))
                     data = ctypes.c_int()
-                    self.md.ReadProcessMemory(int(self.p), int(row[2],16)+i*int(row[3]), ctypes.byref(data), int(row[3]), None)
+                    self.md.ReadProcessMemory(int(self.p), address, ctypes.byref(data), width, None)
                     self.listview_diy.setItem(a,1,QtWidgets.QTableWidgetItem(str(data.value)))
                     if row[1] == "战场编号":
                         tmp = data.value
-                        self.md.ReadProcessMemory(int(self.p), addr_war+tmp*len_war, ctypes.byref(data), 2, None)
-                        if data.value >= 1024:
-                            strs = "空"
+                        if not 0 <= tmp < cnt_wo + cnt_you + cnt_di:
+                            strs = "无效编号"
                         else:
-                            strs = self.listview_data.item(data.value).text()
+                            self.md.ReadProcessMemory(int(self.p), addr_war+tmp*len_war, ctypes.byref(data), 2, None)
+                            if data.value >= 1024 or self.listview_data.item(data.value) is None:
+                                strs = "空"
+                            else:
+                                strs = self.listview_data.item(data.value).text()
                         self.listview_diy.setItem(a,2,QtWidgets.QTableWidgetItem(strs))
                     elif row[1] == "Data编号":
                         if data.value >= 1024:

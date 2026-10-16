@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+.vscode/
+
+build/
+build-temp/
+dist/
+*.spec.bak
+
+DIY.csv
+*.log
